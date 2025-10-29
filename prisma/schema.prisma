@@ -150,7 +150,7 @@ model Config {
   tenantId       String   @unique @map("tenant_id")
   serviceArea    Json     @map("service_area") @db.JsonB
   pricebook      Json     @db.JsonB
-  reminderHours  Int[]    @map("reminder_hours") @db.Int4
+  reminderHours  Int[]    @map("reminder_hours")
   quotePolicy    Json     @map("quote_policy") @db.JsonB
   channels       Json     @db.JsonB
   createdAt      DateTime @default(now()) @map("created_at")
