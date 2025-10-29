@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Channel {
+  messenger
+  sms
+}
+
+enum LeadStage {
+  awaiting_photos
+  clarifying
+  quoting
+  awaiting_owner
+  scheduling
+  booked
+  reminding
+  done
+}
+
+enum QuoteStatus {
+  draft
+  pending_approval
+  approved
+  denied
+  sent
+  accepted
+}
+
+enum JobStatus {
+  tentative
+  booked
+  completed
+  cancelled
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  denied
+}
+
+model Lead {
+  id                       String      @id @default(uuid())
+  channel                  Channel
+  name                     String?
+  messengerPsid            String?     @unique
+  phone                    String?
+  email                    String?
+  address                  String?
+  lat                      Float?
+  lng                      Float?
+  curbside                 Boolean     @default(false)
+  stage                    LeadStage   @default(awaiting_photos)
+  stateMetadata            Json?       @db.JsonB
+  lastCustomerMessageAt    DateTime?   @map("last_customer_message_at")
+  lastAgentMessageAt       DateTime?   @map("last_agent_message_at")
+  createdAt                DateTime    @default(now()) @map("created_at")
+  updatedAt                DateTime    @updatedAt @map("updated_at")
+
+  quotes                   Quote[]
+  jobs                     Job[]
+  audits                   Audit[]
+
+  @@index([channel])
+  @@index([stage])
+}
+
+model Quote {
+  id               String        @id @default(uuid())
+  leadId           String        @map("lead_id")
+  featuresJson     Json          @map("features_json") @db.JsonB
+  lineItemsJson    Json          @map("line_items_json") @db.JsonB
+  discountsJson    Json          @map("discounts_json") @db.JsonB
+  subtotal         Decimal       @db.Decimal(10, 2)
+  total            Decimal       @db.Decimal(10, 2)
+  confidence       Decimal       @db.Decimal(3, 2)
+  needsApproval    Boolean       @map("needs_approval") @default(false)
+  status           QuoteStatus   @default(draft)
+  flagsJson        Json?         @map("flags_json") @db.JsonB
+  notesJson        Json?         @map("notes_json") @db.JsonB
+  disclaimer       String?
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  lead             Lead          @relation(fields: [leadId], references: [id])
+  approvalRequests Approval[]
+  job              Job?
+
+  @@index([leadId])
+  @@index([status])
+}
+
+model Job {
+  id                 String     @id @default(uuid())
+  leadId             String     @map("lead_id")
+  quoteId            String?    @map("quote_id") @unique
+  windowStart        DateTime   @map("window_start")
+  windowEnd          DateTime   @map("window_end")
+  status             JobStatus  @default(tentative)
+  reminderScheduledAt DateTime? @map("reminder_scheduled_at")
+  reminderSentAt     DateTime?  @map("reminder_sent_at")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+
+  lead   Lead   @relation(fields: [leadId], references: [id])
+  quote  Quote? @relation(fields: [quoteId], references: [id])
+
+  @@index([leadId])
+  @@index([windowStart])
+  @@index([status])
+}
+
+model Approval {
+  id         String          @id @default(uuid())
+  quoteId    String          @map("quote_id")
+  token      String          @unique
+  status     ApprovalStatus  @default(pending)
+  approver   String?
+  decidedAt  DateTime?       @map("decided_at")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  quote Quote @relation(fields: [quoteId], references: [id])
+
+  @@index([quoteId])
+  @@index([status])
+}
+
+model Audit {
+  id        String   @id @default(uuid())
+  leadId    String?  @map("lead_id")
+  actor     String
+  action    String
+  payload   Json     @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead Lead? @relation(fields: [leadId], references: [id])
+
+  @@index([leadId])
+  @@index([createdAt])
+}
+
+model Config {
+  id             String   @id @default(uuid())
+  tenantId       String   @unique @map("tenant_id")
+  serviceArea    Json     @map("service_area") @db.JsonB
+  pricebook      Json     @db.JsonB
+  reminderHours  Int[]    @map("reminder_hours") @db.Int4
+  quotePolicy    Json     @map("quote_policy") @db.JsonB
+  channels       Json     @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+}

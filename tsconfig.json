@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "NodeNext",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": "./",
+    "paths": {
+      "@agent/*": ["src/agent/*"],
+      "@tools/*": ["src/tools/*"],
+      "@adapters/*": ["src/adapters/*"],
+      "@routes/*": ["src/routes/*"],
+      "@lib/*": ["src/lib/*"],
+      "@config/*": ["config/*"]
+    }
+  },
+  "include": ["src", "prisma/**/*.ts", "vitest.config.ts"],
+  "exclude": ["dist", "node_modules"]
+}

@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: junkquote-agent
+    env: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: junkquote-db
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: BASE_URL
+        sync: false
+      - key: FB_PAGE_ID
+        sync: false
+      - key: FB_APP_ID
+        sync: false
+      - key: FB_APP_SECRET
+        sync: false
+      - key: FB_PAGE_ACCESS_TOKEN
+        sync: false
+      - key: FB_VERIFY_TOKEN
+        sync: false
+databases:
+  - name: junkquote-db
+    plan: starter

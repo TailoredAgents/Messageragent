@@ -1,0 +1,56 @@
+{
+  "tenant": "junk-woodstock",
+  "service_area": {
+    "mode": "radius_plus_counties",
+    "center": { "lat": 34.1016, "lng": -84.5194 },
+    "radius_miles": 30,
+    "allowed_counties": ["Cobb", "Cherokee", "Fulton"],
+    "travel_baseline_miles": 20,
+    "travel_excess_rate_per_mile": 2.5
+  },
+  "channels": { "messenger": { "enabled": true }, "sms": { "enabled": true } },
+  "reminders": { "t_minus_hours": [24] },
+  "quote_policy": {
+    "disclaimer": "Estimate pending onsite confirmation. Weight/regulated items may affect final price.",
+    "auto_approve_cap": 600,
+    "hazard_keywords": ["needles","chemicals","paint spill","asbestos","biohazard"]
+  },
+  "pricebook": {
+    "trailer": { "cubic_yards": 16.6, "label": "16-yard trailer" },
+    "min_job": 149,
+    "curbside_min_job": 99,
+    "curbside_discount_pct": 10,
+    "volume_tiers": [
+      { "name": "minimum", "yd3": 1.5, "full_service": 149 },
+      { "name": "1/8", "yd3": 2.1, "full_service": 199 },
+      { "name": "1/4", "yd3": 4.1, "full_service": 299 },
+      { "name": "3/8", "yd3": 6.2, "full_service": 389 },
+      { "name": "1/2", "yd3": 8.3, "full_service": 429 },
+      { "name": "5/8", "yd3": 10.4, "full_service": 474 },
+      { "name": "3/4", "yd3": 12.4, "full_service": 549 },
+      { "name": "7/8", "yd3": 14.5, "full_service": 609 },
+      { "name": "full", "yd3": 16.6, "full_service": 649 }
+    ],
+    "weight_policy": { "included_full_load_lb": 2000, "overage_step_lb": 500, "overage_price_per_step": 50 },
+    "bedload": {
+      "concrete_brick_tile": { "rate_per_cy": 250, "max_cy_per_trip": 2 },
+      "dirt_soil_rocks":   { "rate_per_cy": 150, "max_cy_per_trip": 3 },
+      "roofing_shingles":  { "rate_per_cy": 225, "max_cy_per_trip": 3 }
+    },
+    "surcharges": {
+      "stairs_per_flight": 25,
+      "long_carry_per_50ft": 25,
+      "extra_labor_per_quarter_hour_per_person": 20,
+      "same_day_priority": 50,
+      "tight_window_priority": 50
+    },
+    "regulated_items": {
+      "mattress": 20,
+      "appliance_freon": 20,
+      "flat_screen_tv": 20,
+      "paint_gallon": 5,
+      "paint_5gal": 15
+    },
+    "contamination_fee": 60
+  }
+}

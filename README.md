@@ -317,3 +317,18 @@ We'd like to acknowledge the excellent work of the open-source community, especi
 -   [uv](https://github.com/astral-sh/uv) and [ruff](https://github.com/astral-sh/ruff)
 
 We're committed to continuing to build the Agents SDK as an open source framework so others in the community can expand on our approach.
+
+## JunkQuote service email configuration
+
+The Messenger-first reference service in `src/index.ts` can now send AI-generated booking confirmations and reminder emails in addition to in-channel messages.
+
+Set the following environment variables for email delivery:
+
+- `COMPANY_NAME`: Display name for outbound emails and reminders (defaults to "Junk Wizards" if not set).
+- `SUPPORT_PHONE`: Phone number included in prompts so the AI can reference a contact line (defaults to the lead phone if omitted).
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD`: SMTP credentials for your transactional email provider.
+- `EMAIL_FROM`: Default sender address (e.g. `JunkQuote <dispatch@example.com>`).
+- `EMAIL_BCC`: Optional address to receive a blind copy of every outbound email.
+- `EMAIL_MODEL`: Optional OpenAI model override for email composition (defaults to `AGENT_MODEL` or `gpt-4.1-mini`).
+
+When SMTP credentials are missing, the service logs the composed payload instead of attempting delivery. All email bodies are composed dynamically through OpenAI prompts—there are no static templates—so ensure the configured model has the appropriate tone and guardrails for your brand.
