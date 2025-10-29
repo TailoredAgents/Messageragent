@@ -30,4 +30,3 @@ services:
         sync: false
 databases:
   - name: junkquote-db
-    plan: basic
