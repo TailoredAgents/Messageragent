@@ -713,7 +713,6 @@ export async function adminRoutes(fastify: FastifyInstance) {
 
       return reply.view('layout.ejs', {
         pageTitle: 'Operations Dashboard',
-        subtitle: 'Messenger-first JunkQuote agent command center',
         tenantLabel: process.env.TENANT_LABEL ?? 'JunkQuote Agent',
         adminUserLabel: 'Owner',
         pendingApprovals: pendingApprovalsCount,
