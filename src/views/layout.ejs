@@ -124,15 +124,17 @@
       </header>
       <main class="content">
         <% const bannerMessage = typeof flashMessage === 'string' && flashMessage.length > 0 ? flashMessage : null; %>
-        <% if (bannerMessage) { %>
-        <div class="banner banner--info">
-          <span class="banner__dot"></span>
-          <div class="banner__content"><%= bannerMessage %></div>
+        <div class="content__inner">
+          <% if (bannerMessage) { %>
+          <div class="banner banner--info">
+            <span class="banner__dot"></span>
+            <div class="banner__content"><%= bannerMessage %></div>
+          </div>
+          <% } %>
+          <% if (bodyTemplate) { %>
+          <%- include(bodyTemplate) %>
+          <% } %>
         </div>
-        <% } %>
-        <% if (bodyTemplate) { %>
-        <%- include(bodyTemplate) %>
-        <% } %>
       </main>
     </div>
   </body>
