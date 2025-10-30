@@ -717,6 +717,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
         tenantLabel: process.env.TENANT_LABEL ?? 'JunkQuote Agent',
         adminUserLabel: 'Owner',
         pendingApprovals: pendingApprovalsCount,
+        extraStylesheets: [],
         bodyTemplate: 'admin/dashboard.ejs',
         summary,
         metricsCards,

@@ -20,7 +20,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/assets/admin.css" />
-    <% if (extraStylesheets && Array.isArray(extraStylesheets)) { %>
+    <% if (typeof extraStylesheets !== 'undefined' && Array.isArray(extraStylesheets)) { %>
     <% extraStylesheets.forEach(function (href) { %>
     <link rel="stylesheet" href="<%= href %>" />
     <% }); %>
