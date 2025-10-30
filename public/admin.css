@@ -310,6 +310,27 @@ body.density-compact {
   font-size: 0.78rem;
 }
 
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.85);
+  outline-offset: 3px;
+}
+
+.sidebar__link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35);
+}
+
+.table-actions a:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.85);
+  outline-offset: 3px;
+}
+
+.pill:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 2px;
+}
+
 .button--success:hover {
   background: rgba(74, 222, 128, 0.22);
 }
@@ -1120,6 +1141,22 @@ body.density-compact {
   background: rgba(2, 6, 23, 0.4);
   text-align: center;
   color: var(--color-text-subtle);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  .button,
+  .sidebar__link {
+    transition: none !important;
+  }
 }
 
 @media (min-width: 980px) {
