@@ -718,6 +718,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
         adminUserLabel: 'Owner',
         pendingApprovals: pendingApprovalsCount,
         extraStylesheets: [],
+        activeNav: 'dashboard',
         bodyTemplate: 'admin/dashboard.ejs',
         summary,
         metricsCards,

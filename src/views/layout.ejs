@@ -27,6 +27,7 @@
     <% } %>
   </head>
   <body class="app-shell">
+    <% const currentNav = typeof activeNav === 'string' ? activeNav : 'dashboard'; %>
     <aside class="sidebar">
       <div class="sidebar__brand">
         <div class="sidebar__logo">
@@ -39,14 +40,14 @@
       </div>
       <nav class="sidebar__nav">
         <a
-          class="sidebar__link <%= activeNav === 'dashboard' ? 'is-active' : '' %>"
+          class="sidebar__link <%= currentNav === 'dashboard' ? 'is-active' : '' %>"
           href="#dashboard"
         >
           <span class="sidebar__link-icon sidebar__link-icon--pulse"></span>
           <span class="sidebar__link-text">Dashboard</span>
         </a>
         <a
-          class="sidebar__link <%= activeNav === 'approvals' ? 'is-active' : '' %>"
+          class="sidebar__link <%= currentNav === 'approvals' ? 'is-active' : '' %>"
           href="#approvals"
         >
           <span class="sidebar__link-icon sidebar__link-icon--badge"></span>
@@ -56,21 +57,21 @@
           <% } %>
         </a>
         <a
-          class="sidebar__link <%= activeNav === 'pipeline' ? 'is-active' : '' %>"
+          class="sidebar__link <%= currentNav === 'pipeline' ? 'is-active' : '' %>"
           href="#pipeline"
         >
           <span class="sidebar__link-icon sidebar__link-icon--pipeline"></span>
           <span class="sidebar__link-text">Pipeline</span>
         </a>
         <a
-          class="sidebar__link <%= activeNav === 'jobs' ? 'is-active' : '' %>"
+          class="sidebar__link <%= currentNav === 'jobs' ? 'is-active' : '' %>"
           href="#jobs"
         >
           <span class="sidebar__link-icon sidebar__link-icon--calendar"></span>
           <span class="sidebar__link-text">Jobs</span>
         </a>
         <a
-          class="sidebar__link <%= activeNav === 'activity' ? 'is-active' : '' %>"
+          class="sidebar__link <%= currentNav === 'activity' ? 'is-active' : '' %>"
           href="#activity"
         >
           <span class="sidebar__link-icon sidebar__link-icon--activity"></span>
