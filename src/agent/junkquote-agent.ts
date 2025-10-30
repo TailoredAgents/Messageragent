@@ -6,7 +6,7 @@ import {
   buildPriceFromRulesTool,
   buildProposeSlotsTool,
   buildSendMessageTool,
-} from '../tools/index.js';
+} from '../tools/index.ts';
 
 const BASE_MODEL = process.env.AGENT_MODEL ?? 'gpt-5-mini';
 

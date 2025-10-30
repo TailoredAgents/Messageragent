@@ -2,9 +2,9 @@ import { tool } from '@openai/agents';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
-import { getOpenAIClient } from '../lib/openai.js';
-import { prisma } from '../lib/prisma.js';
-import { VisionFeatureSummary } from '../lib/types.js';
+import { getOpenAIClient } from '../lib/openai.ts';
+import { prisma } from '../lib/prisma.ts';
+import { VisionFeatureSummary } from '../lib/types.ts';
 
 const ANALYZE_MODEL_PRIMARY = process.env.ANALYZE_MODEL_PRIMARY ?? 'gpt-5-mini';
 const ANALYZE_MODEL_ESCALATION =

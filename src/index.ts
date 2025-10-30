@@ -5,21 +5,21 @@ import process from 'node:process';
 
 import formbody from '@fastify/formbody';
 import fastifyStatic from '@fastify/static';
-import Fastify from 'fastify';
-import pointOfView from 'point-of-view';
+import fastifyView from '@fastify/view';
+import fastify from 'fastify';
 import ejs from 'ejs';
 
-import { adminRoutes } from './routes/admin.js';
-import { messengerRoutes } from './routes/messenger.js';
-import { startReminderScheduler } from './lib/reminder-scheduler.js';
-import { smsRoutes } from './routes/sms.js';
+import { adminRoutes } from './routes/admin.ts';
+import { messengerRoutes } from './routes/messenger.ts';
+import { startReminderScheduler } from './lib/reminder-scheduler.ts';
+import { smsRoutes } from './routes/sms.ts';
 
 async function main(): Promise<void> {
-  const server = Fastify({
+  const server = fastify({
     logger: true,
   });
 
-  server.register(pointOfView, {
+  server.register(fastifyView, {
     engine: { ejs },
     root: path.join(process.cwd(), 'src', 'views'),
     viewExt: 'ejs',

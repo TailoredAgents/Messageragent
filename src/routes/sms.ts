@@ -1,10 +1,12 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify/types/instance';
+import type { FastifyReply } from 'fastify/types/reply';
+import type { FastifyRequest } from 'fastify/types/request';
 import { Prisma } from '@prisma/client';
 
-import { getJunkQuoteAgent } from '../agent/index.js';
-import { getRunner } from '../lib/agent-runner.js';
-import { prisma } from '../lib/prisma.js';
-import { validateTwilioSignature } from '../adapters/twilio.js';
+import { getJunkQuoteAgent } from '../agent/index.ts';
+import { getRunner } from '../lib/agent-runner.ts';
+import { prisma } from '../lib/prisma.ts';
+import { validateTwilioSignature } from '../adapters/twilio.ts';
 
 type LeadWithRelations = Prisma.LeadGetPayload<{
   include: { quotes: { orderBy: { createdAt: 'desc' } } };
@@ -69,7 +71,7 @@ function buildAgentInput({
   lead: LeadWithRelations;
   text: string;
   attachments: string[];
-}) {
+}): string {
   const contextLines = [
     `Lead ID: ${lead.id}`,
     `Stage: ${lead.stage}`,
@@ -77,24 +79,21 @@ function buildAgentInput({
     `Curbside flag: ${lead.curbside ? 'true' : 'false'}`,
     `Latest quote: ${lead.quotes[0]?.id ?? 'none'}`,
     `Channel: sms`,
-    attachments.length > 0
-      ? `Attachment URLs: ${attachments.join(', ')}`
-      : 'Attachment URLs: none',
   ];
 
+  const attachmentSummary =
+    attachments.length > 0
+      ? `Photos provided:\n${attachments.join('\n')}`
+      : 'No photos attached yet.';
+
   return [
-    {
-      role: 'developer',
-      content: contextLines.join('\n'),
-    },
-    {
-      role: 'user',
-      content:
-        attachments.length > 0
-          ? `${text}\nPhotos:\n${attachments.join('\n')}`
-          : text,
-    },
-  ];
+    'Context:',
+    contextLines.join('\n'),
+    '\nCustomer message:',
+    text,
+    '\n',
+    attachmentSummary,
+  ].join('\n');
 }
 
 async function processSmsEvent(
@@ -147,13 +146,13 @@ async function processSmsEvent(
   const runner = getRunner();
   const agent = getJunkQuoteAgent();
 
-  const inputItems = buildAgentInput({
+  const inputText = buildAgentInput({
     lead,
     text: messageText,
     attachments,
   });
 
-  await runner.run(agent, inputItems, {
+  await runner.run(agent, inputText, {
     context: {
       leadId: lead.id,
       smsFrom: from,

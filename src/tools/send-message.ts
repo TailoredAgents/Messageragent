@@ -2,9 +2,9 @@ import { tool } from '@openai/agents';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
-import { sendMessengerMessage } from '../adapters/messenger.js';
-import { sendSmsMessage } from '../adapters/twilio.js';
-import { prisma } from '../lib/prisma.js';
+import { sendMessengerMessage } from '../adapters/messenger.ts';
+import { sendSmsMessage } from '../adapters/twilio.ts';
+import { prisma } from '../lib/prisma.ts';
 
 const sendMessageParameters = z.object({
   lead_id: z.string().uuid('lead_id must be a valid UUID'),

@@ -1,9 +1,11 @@
 import { Buffer } from 'node:buffer';
 
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify/types/instance';
+import type { FastifyReply } from 'fastify/types/reply';
+import type { FastifyRequest } from 'fastify/types/request';
 import { Prisma } from '@prisma/client';
 
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/prisma.ts';
 
 function unauthorized(reply: FastifyReply) {
   reply.header('WWW-Authenticate', 'Basic realm="Admin Area"');

@@ -4,10 +4,10 @@ import { tool } from '@openai/agents';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
-import { prisma } from '../lib/prisma.js';
-import { computeQuote } from '../lib/price-engine.js';
-import { loadTenantConfig } from '../lib/config.js';
-import { QuoteComputation, VisionFeatureSummary } from '../lib/types.js';
+import { prisma } from '../lib/prisma.ts';
+import { computeQuote } from '../lib/price-engine.ts';
+import { loadTenantConfig } from '../lib/config.ts';
+import { QuoteComputation, VisionFeatureSummary } from '../lib/types.ts';
 
 const featuresSchema = z.object({
   volume_class: z.string(),

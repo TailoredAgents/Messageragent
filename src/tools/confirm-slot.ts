@@ -3,10 +3,10 @@ import { Prisma } from '@prisma/client';
 import { subHours } from 'date-fns';
 import { z } from 'zod';
 
-import { createCalendarHold } from '../lib/calendar.js';
-import { generateBookingConfirmationEmail } from '../lib/email-content.js';
-import { sendTransactionalEmail } from '../lib/email.js';
-import { prisma } from '../lib/prisma.js';
+import { createCalendarHold } from '../lib/calendar.ts';
+import { generateBookingConfirmationEmail } from '../lib/email-content.ts';
+import { sendTransactionalEmail } from '../lib/email.ts';
+import { prisma } from '../lib/prisma.ts';
 
 const confirmSlotParameters = z.object({
   lead_id: z.string().uuid('lead_id must be a valid UUID'),

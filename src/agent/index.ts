@@ -1,1 +1,1 @@
-export { getJunkQuoteAgent } from './junkquote-agent.js';
+export { getJunkQuoteAgent } from './junkquote-agent.ts';

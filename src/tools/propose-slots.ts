@@ -3,8 +3,8 @@ import { Prisma } from '@prisma/client';
 import { addDays, setHours, setMinutes, startOfDay } from 'date-fns';
 import { z } from 'zod';
 
-import { prisma } from '../lib/prisma.js';
-import { ProposedSlot } from '../lib/types.js';
+import { prisma } from '../lib/prisma.ts';
+import { ProposedSlot } from '../lib/types.ts';
 
 const proposeSlotsParameters = z.object({
   lead_id: z.string().uuid('lead_id must be a valid UUID'),
