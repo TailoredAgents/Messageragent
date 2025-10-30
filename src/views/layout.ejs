@@ -118,10 +118,11 @@
         </div>
       </header>
       <main class="content">
-        <% if (flashMessage) { %>
+        <% const bannerMessage = typeof flashMessage === 'string' && flashMessage.length > 0 ? flashMessage : null; %>
+        <% if (bannerMessage) { %>
         <div class="banner banner--info">
           <span class="banner__dot"></span>
-          <div class="banner__content"><%= flashMessage %></div>
+          <div class="banner__content"><%= bannerMessage %></div>
         </div>
         <% } %>
         <% if (bodyTemplate) { %>

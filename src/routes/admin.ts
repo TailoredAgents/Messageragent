@@ -720,6 +720,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
         extraStylesheets: [],
         activeNav: 'dashboard',
         bodyTemplate: 'admin/dashboard.ejs',
+        flashMessage: null,
         summary,
         metricsCards,
         stageBreakdown,
