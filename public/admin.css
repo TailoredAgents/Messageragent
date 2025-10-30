@@ -52,6 +52,11 @@ body {
   min-height: 100vh;
 }
 
+.density-compact .app-shell,
+body.density-compact {
+  font-size: 0.96rem;
+}
+
 .app-shell {
   display: flex;
 }
@@ -1020,6 +1025,95 @@ body {
   background: rgba(2, 6, 23, 0.4);
   text-align: center;
   color: var(--color-text-subtle);
+}
+
+/* Density: compact */
+.density-compact .content {
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+.density-compact .content__inner {
+  gap: var(--space-4);
+}
+
+.density-compact .section {
+  gap: var(--space-3);
+}
+
+.density-compact .section__header {
+  gap: var(--space-2);
+}
+
+.density-compact .hero-card {
+  padding: 24px;
+  gap: 24px;
+}
+
+.density-compact .hero-card__stats {
+  gap: var(--space-3);
+}
+
+.density-compact .metrics-grid {
+  gap: var(--space-3);
+}
+
+.density-compact .metric-card {
+  padding: 18px;
+}
+
+.density-compact .stage-card {
+  padding: 16px;
+  gap: var(--space-3);
+}
+
+.density-compact .card {
+  border-radius: 16px;
+}
+
+.density-compact .data-table th,
+.density-compact .data-table td {
+  padding: 12px;
+}
+
+.density-compact .timeline__item {
+  padding: 14px;
+}
+
+.density-compact .feed__item {
+  padding: 14px;
+  gap: var(--space-3);
+}
+
+.density-compact .gallery__item figcaption {
+  padding: 8px 10px;
+}
+
+.density-compact .gallery {
+  gap: var(--space-2);
+}
+
+.density-compact .button {
+  padding: 8px 16px;
+}
+
+.density-compact .button--small {
+  padding: 5px 12px;
+}
+
+.density-compact .sidebar__nav {
+  gap: 4px;
+}
+
+.density-compact .sidebar__link {
+  padding: 10px;
+}
+
+.density-compact .timeline__timestamp {
+  min-width: 110px;
+}
+
+.density-compact .photo-group {
+  gap: 4px;
 }
 
 @media (max-width: 1100px) {
