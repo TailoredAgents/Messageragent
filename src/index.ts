@@ -46,6 +46,20 @@ async function main(): Promise<void> {
     decorateReply: false,
   });
 
+  server.get('/privacy', async (_, reply) => {
+    const companyName = process.env.COMPANY_NAME ?? 'Junk Wizards';
+    const contactEmail = process.env.SUPPORT_EMAIL ?? 'privacy@junkwizards.com';
+    const contactPhone = process.env.SUPPORT_PHONE ?? '(555) 010-0000';
+    const lastUpdated = (process.env.PRIVACY_POLICY_UPDATED_AT ?? new Date().toISOString().split('T')[0]) as string;
+
+    return reply.view('privacy.ejs', {
+      companyName,
+      contactEmail,
+      contactPhone,
+      lastUpdated,
+    });
+  });
+
   server.get('/healthz', async () => ({ status: 'ok' }));
 
   await server.register(messengerRoutes);
