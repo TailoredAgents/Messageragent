@@ -1,0 +1,24 @@
+<section class="section">
+  <div class="section__header">
+    <h3 class="section__title">Photo Gallery</h3>
+    <p class="section__subtitle">
+      Visual context from the most recent customer submissions.
+    </p>
+  </div>
+  <div class="gallery">
+    <% if (photoGallery.length === 0) { %>
+    <div class="gallery__empty">
+      Remind customers to upload at least one photo for faster quoting.
+    </div>
+    <% } else { %> <% photoGallery.forEach(function (item) { %>
+    <figure class="gallery__item">
+      <img src="<%= item.url %>" alt="Customer submitted photo" loading="lazy" />
+      <figcaption>
+        <strong><%= item.leadName %></strong>
+        <span><%= item.stageLabel %></span>
+        <span><%= item.capturedAgo %></span>
+      </figcaption>
+    </figure>
+    <% }); %> <% } %>
+  </div>
+</section>

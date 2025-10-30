@@ -17,6 +17,17 @@ import { prisma } from '../lib/prisma.ts';
 type JsonRecord = Record<string, unknown>;
 type StageTone = 'warm' | 'cool' | 'success' | 'neutral';
 type MetricDeltaTone = 'positive' | 'negative' | 'neutral';
+type AdminTab =
+  | 'dashboard'
+  | 'approvals'
+  | 'pipeline'
+  | 'jobs'
+  | 'activity'
+  | 'gallery';
+
+interface AdminQuery {
+  tab?: string;
+}
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -94,6 +105,42 @@ const stageMeta: Record<
     tone: 'neutral',
     nextAction: 'Log crew notes and request review.',
     trend: 'Track repeat customers separately.',
+  },
+};
+
+const tabViewConfig: Record<
+  AdminTab,
+  { title: string; subtitle?: string; template: string }
+> = {
+  dashboard: {
+    title: 'Operations Dashboard',
+    subtitle: undefined,
+    template: 'admin/dashboard.ejs',
+  },
+  approvals: {
+    title: 'Approvals Queue',
+    subtitle: 'Quotes needing owner review before release to customers.',
+    template: 'admin/approvals.ejs',
+  },
+  pipeline: {
+    title: 'Lead Pipeline',
+    subtitle: 'Latest leads across the JunkQuote conversation flow.',
+    template: 'admin/pipeline.ejs',
+  },
+  jobs: {
+    title: 'Upcoming Jobs',
+    subtitle: 'Confirmed and tentative pickups scheduled for the next week.',
+    template: 'admin/jobs.ejs',
+  },
+  activity: {
+    title: 'Recent Activity',
+    subtitle: 'Audit log of automation, owner actions, and customer updates.',
+    template: 'admin/activity.ejs',
+  },
+  gallery: {
+    title: 'Photo Gallery',
+    subtitle: 'Customer-submitted photos for quoting and crew context.',
+    template: 'admin/gallery.ejs',
   },
 };
 
@@ -711,14 +758,23 @@ export async function adminRoutes(fastify: FastifyInstance) {
         averageQuoteValue: formatCurrency(averageQuote),
       };
 
+      const requestedTabRaw = (request.query.tab ?? '').toLowerCase();
+      const activeTab = (
+        Object.hasOwn(tabViewConfig, requestedTabRaw)
+          ? requestedTabRaw
+          : 'dashboard'
+      ) as AdminTab;
+      const { title, subtitle, template } = tabViewConfig[activeTab];
+
       return reply.view('layout.ejs', {
-        pageTitle: 'Operations Dashboard',
+        pageTitle: title,
+        subtitle,
         tenantLabel: process.env.TENANT_LABEL ?? 'JunkQuote Agent',
         adminUserLabel: 'Owner',
         pendingApprovals: pendingApprovalsCount,
         extraStylesheets: [],
-        activeNav: 'dashboard',
-        bodyTemplate: 'admin/dashboard.ejs',
+        activeNav: activeTab,
+        bodyTemplate: template,
         flashMessage: null,
         summary,
         metricsCards,

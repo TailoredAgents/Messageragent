@@ -151,6 +151,10 @@ body {
   background: rgba(244, 114, 182, 0.45);
 }
 
+.sidebar__link-icon--gallery {
+  background: rgba(248, 191, 235, 0.45);
+}
+
 .sidebar__pill {
   margin-left: auto;
   padding: 0 10px;

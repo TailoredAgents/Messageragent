@@ -1,0 +1,34 @@
+<section class="section">
+  <div class="section__header">
+    <h3 class="section__title">Recent Activity</h3>
+    <p class="section__subtitle">
+      Audit trail across agent decisions, customer replies, and owner approvals.
+    </p>
+  </div>
+  <div class="feed">
+    <% if (activityFeed.length === 0) { %>
+    <div class="feed__empty">
+      Once customers engage, the running log of automation decisions will
+      populate here.
+    </div>
+    <% } else { %> <% activityFeed.forEach(function (entry) { %>
+    <article class="feed__item feed__item--<%= entry.badgeTone %>">
+      <div class="feed__timestamp" title="<%= entry.timestamp %>">
+        <%= entry.timeAgo %>
+      </div>
+      <div class="feed__content">
+        <div class="feed__title"><%= entry.actionLabel %></div>
+        <div class="feed__meta">
+          <span><%= entry.actor %></span>
+          <% if (entry.summary) { %>
+          <span>| <%= entry.summary %></span>
+          <% } %>
+        </div>
+        <% if (entry.payloadSnippet) { %>
+        <pre class="feed__payload"><%= entry.payloadSnippet %></pre>
+        <% } %>
+      </div>
+    </article>
+    <% }); %> <% } %>
+  </div>
+</section>

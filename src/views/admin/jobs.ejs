@@ -1,0 +1,34 @@
+<section class="section">
+  <div class="section__header">
+    <h3 class="section__title">Upcoming Jobs</h3>
+    <p class="section__subtitle">
+      Confirmed and tentative pickups across the next seven days.
+    </p>
+  </div>
+  <div class="timeline">
+    <% if (upcomingJobs.length === 0) { %>
+    <div class="timeline__empty">
+      Nothing scheduled yet. Confirm a quote to create the first pickup window.
+    </div>
+    <% } else { %> <% upcomingJobs.forEach(function (job) { %>
+    <article class="timeline__item timeline__item--<%= job.statusClass %>">
+      <div class="timeline__timestamp">
+        <span class="timeline__date"><%= job.windowLabel %></span>
+        <span class="timeline__meta"><%= job.windowRelative %></span>
+      </div>
+      <div class="timeline__body">
+        <h4 class="timeline__title"><%= job.leadName %></h4>
+        <p class="timeline__subtitle">
+          <%= job.address || 'Address pending confirmation' %>
+        </p>
+        <div class="timeline__tags">
+          <span class="pill pill--status pill--status-<%= job.statusClass %>"
+            ><%= job.statusLabel %></span
+          >
+          <span class="pill pill--info"><%= job.reminderStatus %></span>
+        </div>
+      </div>
+    </article>
+    <% }); %> <% } %>
+  </div>
+</section>

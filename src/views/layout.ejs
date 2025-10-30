@@ -41,14 +41,14 @@
       <nav class="sidebar__nav">
         <a
           class="sidebar__link <%= currentNav === 'dashboard' ? 'is-active' : '' %>"
-          href="#dashboard"
+          href="/admin?tab=dashboard"
         >
           <span class="sidebar__link-icon sidebar__link-icon--pulse"></span>
           <span class="sidebar__link-text">Dashboard</span>
         </a>
         <a
           class="sidebar__link <%= currentNav === 'approvals' ? 'is-active' : '' %>"
-          href="#approvals"
+          href="/admin?tab=approvals"
         >
           <span class="sidebar__link-icon sidebar__link-icon--badge"></span>
           <span class="sidebar__link-text">Approvals</span>
@@ -58,24 +58,31 @@
         </a>
         <a
           class="sidebar__link <%= currentNav === 'pipeline' ? 'is-active' : '' %>"
-          href="#pipeline"
+          href="/admin?tab=pipeline"
         >
           <span class="sidebar__link-icon sidebar__link-icon--pipeline"></span>
           <span class="sidebar__link-text">Pipeline</span>
         </a>
         <a
           class="sidebar__link <%= currentNav === 'jobs' ? 'is-active' : '' %>"
-          href="#jobs"
+          href="/admin?tab=jobs"
         >
           <span class="sidebar__link-icon sidebar__link-icon--calendar"></span>
           <span class="sidebar__link-text">Jobs</span>
         </a>
         <a
           class="sidebar__link <%= currentNav === 'activity' ? 'is-active' : '' %>"
-          href="#activity"
+          href="/admin?tab=activity"
         >
           <span class="sidebar__link-icon sidebar__link-icon--activity"></span>
           <span class="sidebar__link-text">Activity</span>
+        </a>
+        <a
+          class="sidebar__link <%= currentNav === 'gallery' ? 'is-active' : '' %>"
+          href="/admin?tab=gallery"
+        >
+          <span class="sidebar__link-icon sidebar__link-icon--gallery"></span>
+          <span class="sidebar__link-text">Gallery</span>
         </a>
       </nav>
       <div class="sidebar__footer">

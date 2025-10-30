@@ -1,0 +1,78 @@
+<section class="section">
+  <div class="section__header">
+    <h3 class="section__title">Approvals Queue</h3>
+    <p class="section__subtitle">
+      Quotes above the automation cap waiting for an owner decision.
+    </p>
+  </div>
+  <div class="card table-card">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th scope="col">Quote</th>
+          <th scope="col">Lead</th>
+          <th scope="col">Total</th>
+          <th scope="col">Flags</th>
+          <th scope="col">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (approvalsQueue.length === 0) { %>
+        <tr>
+          <td colspan="5" class="data-table__empty">
+            All caught up. Approvals will land here when needed.
+          </td>
+        </tr>
+        <% } else { %> <% approvalsQueue.forEach(function (approval) { %>
+        <tr class="data-table__row data-table__row--<%= approval.riskLevel %>">
+          <td>
+            <div class="table-primary">
+              <div class="table-primary__title"><%= approval.quoteId %></div>
+              <div class="table-primary__meta">
+                Submitted <%= approval.submittedAgo %>
+              </div>
+            </div>
+          </td>
+          <td>
+            <div class="table-stack">
+              <span class="table-stack__title"><%= approval.leadName %></span>
+              <span class="table-stack__meta"
+                ><%= approval.address || 'Address pending' %></span
+              >
+            </div>
+          </td>
+          <td>
+            <div class="table-value">
+              <span class="table-value__primary"><%= approval.totalDisplay %></span>
+              <span class="table-value__meta"><%= approval.confidenceCopy %></span>
+            </div>
+          </td>
+          <td>
+            <div class="pill-row">
+              <% if (approval.flags.length === 0) { %>
+              <span class="pill pill--neutral">No flags</span>
+              <% } else { %> <% approval.flags.forEach(function (flag) { %>
+              <span class="pill pill--warning"><%= flag %></span>
+              <% }); %> <% } %>
+            </div>
+          </td>
+          <td>
+            <div class="table-actions">
+              <a
+                class="button button--small button--success"
+                href="/api/approve/<%= approval.token %>?decision=approve"
+                >Approve</a
+              >
+              <a
+                class="button button--small button--danger"
+                href="/api/approve/<%= approval.token %>?decision=deny"
+                >Decline</a
+              >
+            </div>
+          </td>
+        </tr>
+        <% }); %> <% } %>
+      </tbody>
+    </table>
+  </div>
+</section>
