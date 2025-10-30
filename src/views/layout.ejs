@@ -28,6 +28,7 @@
   </head>
   <body class="app-shell">
     <% const currentNav = typeof activeNav === 'string' ? activeNav : 'dashboard'; %>
+    <% const currentSubtitle = typeof subtitle === 'string' && subtitle.length > 0 ? subtitle : null; %>
     <aside class="sidebar">
       <div class="sidebar__brand">
         <div class="sidebar__logo">
@@ -97,8 +98,8 @@
       <header class="topbar">
         <div class="topbar__left">
           <h1 class="topbar__title"><%= pageTitle || 'Dashboard' %></h1>
-          <% if (subtitle) { %>
-          <p class="topbar__subtitle"><%= subtitle %></p>
+          <% if (currentSubtitle) { %>
+          <p class="topbar__subtitle"><%= currentSubtitle %></p>
           <% } %>
         </div>
         <div class="topbar__right">
