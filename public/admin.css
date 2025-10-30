@@ -495,6 +495,7 @@ body.density-compact {
 
 .metric-card {
   position: relative;
+  --sparkline-color: rgba(56, 189, 248, 0.45);
   border-radius: 18px;
   padding: 22px;
   background: linear-gradient(
@@ -508,6 +509,35 @@ body.density-compact {
   gap: 10px;
 }
 
+.metric-card::after {
+  content: '';
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  width: 52px;
+  height: 22px;
+  background: linear-gradient(
+    180deg,
+    var(--sparkline-color),
+    rgba(56, 189, 248, 0)
+  );
+  clip-path: polygon(
+    0% 70%,
+    10% 55%,
+    25% 68%,
+    40% 42%,
+    55% 58%,
+    70% 36%,
+    85% 48%,
+    100% 20%,
+    100% 100%,
+    0% 100%
+  );
+  border-radius: 6px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .metric-card__icon {
   width: 38px;
   height: 38px;
@@ -519,12 +549,24 @@ body.density-compact {
   background: rgba(251, 191, 36, 0.3);
 }
 
+.metric-card--approvals {
+  --sparkline-color: rgba(251, 191, 36, 0.55);
+}
+
 .metric-card--jobs .metric-card__icon {
   background: rgba(59, 130, 246, 0.3);
 }
 
+.metric-card--jobs {
+  --sparkline-color: rgba(59, 130, 246, 0.55);
+}
+
 .metric-card--revenue .metric-card__icon {
   background: rgba(74, 222, 128, 0.3);
+}
+
+.metric-card--revenue {
+  --sparkline-color: rgba(74, 222, 128, 0.6);
 }
 
 .metric-card__labels {
@@ -1095,6 +1137,13 @@ body.density-compact {
 
 .density-compact .metric-card {
   padding: 18px;
+}
+
+.density-compact .metric-card::after {
+  top: 12px;
+  right: 16px;
+  width: 46px;
+  height: 18px;
 }
 
 .density-compact .stage-card {
