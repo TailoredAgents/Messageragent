@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 import path from 'node:path';
 import process from 'node:process';
+import fs from 'node:fs/promises';
 
 import formbody from '@fastify/formbody';
 import fastifyStatic from '@fastify/static';
@@ -27,8 +28,11 @@ async function main(): Promise<void> {
 
   server.register(formbody);
 
+  const calendarDir = path.join(process.cwd(), 'storage', 'calendar');
+  await fs.mkdir(calendarDir, { recursive: true });
+
   server.register(fastifyStatic, {
-    root: path.join(process.cwd(), 'storage', 'calendar'),
+    root: calendarDir,
     prefix: '/calendar/',
     decorateReply: false,
   });

@@ -37,6 +37,7 @@ npm run seed          # optional demo data
 npm run dev           # starts Fastify with hot reload
 npm run test          # vitest unit tests for pricing engine
 ```
+`npm run start` (and the Render service) automatically runs `npm run prisma:migrate:deploy` before the server launches so your database schema is always up to date. You can still execute the command manually if you prefer to control migrations yourself.
 
 Messenger webhook:
 

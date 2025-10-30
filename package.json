@@ -11,7 +11,7 @@
     "prebuild": "prisma generate",
     "build": "npm run prisma:generate",
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
+    "start": "npm run prisma:migrate:deploy && tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
