@@ -267,11 +267,22 @@ body.density-compact {
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
-  transition: transform 0.2s ease, opacity 0.2s ease;
+  transition: transform 0.18s ease, opacity 0.18s ease,
+    background 0.18s ease, box-shadow 0.18s ease;
 }
 
 .button:hover {
   transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.button:active {
+  transform: translateY(0);
+  opacity: 0.9;
+}
+
+.button--ghost:hover {
+  background: rgba(248, 250, 252, 0.12);
 }
 
 .button--ghost {
@@ -283,11 +294,36 @@ body.density-compact {
 .button--primary {
   background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
   color: var(--color-text);
+  box-shadow: 0 10px 30px rgba(37, 99, 235, 0.28);
+}
+
+.button--primary:hover {
+  box-shadow: 0 14px 36px rgba(37, 99, 235, 0.32);
+}
+
+.button--primary:active {
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.26);
 }
 
 .button--small {
   padding: 6px 14px;
   font-size: 0.78rem;
+}
+
+.button--success:hover {
+  background: rgba(74, 222, 128, 0.22);
+}
+
+.button--danger:hover {
+  background: rgba(248, 113, 113, 0.22);
+}
+
+.density-compact .button {
+  padding: 8px 16px;
+}
+
+.density-compact .button--small {
+  padding: 5px 12px;
 }
 
 .button--success {
