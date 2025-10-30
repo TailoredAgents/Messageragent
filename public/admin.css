@@ -102,14 +102,33 @@ body {
   border-radius: 10px;
   text-decoration: none;
   color: var(--color-text-muted);
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: background 0.18s ease, color 0.18s ease;
   position: relative;
+  overflow: hidden;
+}
+
+.sidebar__link::before {
+  content: '';
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #38bdf8 0%, #2563eb 100%);
+  opacity: 0;
+  transform: scaleY(0.4);
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
 .sidebar__link:hover,
 .sidebar__link.is-active {
   background: rgba(56, 189, 248, 0.12);
   color: var(--color-text);
+}
+
+.sidebar__link:hover::before,
+.sidebar__link.is-active::before {
+  opacity: 1;
+  transform: scaleY(1);
 }
 
 .sidebar__link-icon {
