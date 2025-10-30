@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+    />
+    <title>
+      <% if (pageTitle) { %>
+      <%= pageTitle %> | JunkQuote Admin
+      <% } else { %>
+      JunkQuote Admin
+      <% } %>
+    </title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/admin.css" />
+    <% if (extraStylesheets && Array.isArray(extraStylesheets)) { %>
+    <% extraStylesheets.forEach(function (href) { %>
+    <link rel="stylesheet" href="<%= href %>" />
+    <% }); %>
+    <% } %>
+  </head>
+  <body class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar__brand">
+        <div class="sidebar__logo">
+          <span class="sidebar__logo-icon">JQ</span>
+        </div>
+        <div class="sidebar__brand-text">
+          <span class="sidebar__title"><%= tenantLabel || 'JunkQuote' %></span>
+          <span class="sidebar__subtitle">Operations Console</span>
+        </div>
+      </div>
+      <nav class="sidebar__nav">
+        <a
+          class="sidebar__link <%= activeNav === 'dashboard' ? 'is-active' : '' %>"
+          href="#dashboard"
+        >
+          <span class="sidebar__link-icon sidebar__link-icon--pulse"></span>
+          <span class="sidebar__link-text">Dashboard</span>
+        </a>
+        <a
+          class="sidebar__link <%= activeNav === 'approvals' ? 'is-active' : '' %>"
+          href="#approvals"
+        >
+          <span class="sidebar__link-icon sidebar__link-icon--badge"></span>
+          <span class="sidebar__link-text">Approvals</span>
+          <% if (pendingApprovals && pendingApprovals > 0) { %>
+          <span class="sidebar__pill"><%= pendingApprovals %></span>
+          <% } %>
+        </a>
+        <a
+          class="sidebar__link <%= activeNav === 'pipeline' ? 'is-active' : '' %>"
+          href="#pipeline"
+        >
+          <span class="sidebar__link-icon sidebar__link-icon--pipeline"></span>
+          <span class="sidebar__link-text">Pipeline</span>
+        </a>
+        <a
+          class="sidebar__link <%= activeNav === 'jobs' ? 'is-active' : '' %>"
+          href="#jobs"
+        >
+          <span class="sidebar__link-icon sidebar__link-icon--calendar"></span>
+          <span class="sidebar__link-text">Jobs</span>
+        </a>
+        <a
+          class="sidebar__link <%= activeNav === 'activity' ? 'is-active' : '' %>"
+          href="#activity"
+        >
+          <span class="sidebar__link-icon sidebar__link-icon--activity"></span>
+          <span class="sidebar__link-text">Activity</span>
+        </a>
+      </nav>
+      <div class="sidebar__footer">
+        <div class="sidebar__footer-label">Signed in as</div>
+        <div class="sidebar__footer-value"><%= adminUserLabel || 'Owner' %></div>
+        <div class="sidebar__footer-meta">
+          Password protected | <%= new Date().getFullYear() %>
+        </div>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <div class="topbar__left">
+          <h1 class="topbar__title"><%= pageTitle || 'Dashboard' %></h1>
+          <% if (subtitle) { %>
+          <p class="topbar__subtitle"><%= subtitle %></p>
+          <% } %>
+        </div>
+        <div class="topbar__right">
+          <% if (summary && summary.refreshRelative) { %>
+          <div class="topbar__timestamp">
+            <span class="topbar__timestamp-label">Last sync</span>
+            <span class="topbar__timestamp-value"
+              ><%= summary.refreshRelative %></span
+            >
+          </div>
+          <% } %>
+          <div class="topbar__actions">
+            <a class="button button--ghost" href="/healthz" target="_blank"
+              >Health Check</a
+            >
+            <button
+              class="button button--primary"
+              type="button"
+              onclick="location.reload()"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+      </header>
+      <main class="content">
+        <% if (flashMessage) { %>
+        <div class="banner banner--info">
+          <span class="banner__dot"></span>
+          <div class="banner__content"><%= flashMessage %></div>
+        </div>
+        <% } %>
+        <% if (bodyTemplate) { %>
+        <%- include(bodyTemplate) %>
+        <% } %>
+      </main>
+    </div>
+  </body>
+</html>

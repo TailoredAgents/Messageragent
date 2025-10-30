@@ -28,6 +28,15 @@ async function main(): Promise<void> {
 
   server.register(formbody);
 
+  const assetsDir = path.join(process.cwd(), 'public');
+  await fs.mkdir(assetsDir, { recursive: true });
+
+  server.register(fastifyStatic, {
+    root: assetsDir,
+    prefix: '/assets/',
+    decorateReply: false,
+  });
+
   const calendarDir = path.join(process.cwd(), 'storage', 'calendar');
   await fs.mkdir(calendarDir, { recursive: true });
 
