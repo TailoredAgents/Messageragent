@@ -60,23 +60,7 @@ body {
 .sidebar__brand {
   display: flex;
   align-items: center;
-  gap: 16px;
-}
-
-.sidebar__logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
-  box-shadow: var(--shadow-sm);
-}
-
-.sidebar__logo-icon {
-  font-weight: 700;
-  font-size: 1rem;
-  letter-spacing: 0.08em;
+  gap: 12px;
 }
 
 .sidebar__brand-text {
