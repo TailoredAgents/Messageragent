@@ -66,7 +66,12 @@ async function main(): Promise<void> {
   await server.register(smsRoutes);
   await server.register(adminRoutes);
 
-  startReminderScheduler();
+  // Note: Reminder scheduler should run in a separate worker service
+  // Only start it here if ENABLE_SCHEDULER is explicitly set to 'true'
+  if (process.env.ENABLE_SCHEDULER === 'true') {
+    server.log.warn('Starting reminder scheduler in web process (not recommended for production)');
+    startReminderScheduler();
+  }
 
   const port = Number.parseInt(process.env.PORT ?? '3000', 10);
   const host = process.env.HOST ?? '0.0.0.0';
