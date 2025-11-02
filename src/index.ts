@@ -66,13 +66,25 @@ async function main(): Promise<void> {
   await server.register(smsRoutes);
   await server.register(adminRoutes);
 
-  const enableReminders = String(process.env.ENABLE_REMINDERS ?? 'true')
-    .toLowerCase()
-    .trim();
-  if (!['0', 'false', 'no', 'off'].includes(enableReminders)) {
-    startReminderScheduler();
+  // Start reminder scheduler based on env toggles.
+  // Prefer ENABLE_SCHEDULER='true' if explicitly set (worker-first model upstream).
+  // Otherwise, fall back to ENABLE_REMINDERS toggle (defaults to enabled).
+  if (typeof process.env.ENABLE_SCHEDULER !== 'undefined') {
+    if (process.env.ENABLE_SCHEDULER === 'true') {
+      server.log.warn('Starting reminder scheduler in web process (as ENABLE_SCHEDULER=true)');
+      startReminderScheduler();
+    } else {
+      server.log.info('Reminders disabled via ENABLE_SCHEDULER');
+    }
   } else {
-    server.log.info('Reminders disabled via ENABLE_REMINDERS');
+    const enableReminders = String(process.env.ENABLE_REMINDERS ?? 'true')
+      .toLowerCase()
+      .trim();
+    if (!['0', 'false', 'no', 'off'].includes(enableReminders)) {
+      startReminderScheduler();
+    } else {
+      server.log.info('Reminders disabled via ENABLE_REMINDERS');
+    }
   }
 
   const port = Number.parseInt(process.env.PORT ?? '3000', 10);

@@ -12,6 +12,7 @@
     "build": "npm run prisma:generate",
     "dev": "tsx watch src/index.ts",
     "start": "npm run prisma:migrate:deploy && tsx src/index.ts",
+    "start:worker": "npm run prisma:migrate:deploy && tsx src/worker.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
