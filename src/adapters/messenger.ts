@@ -6,11 +6,33 @@ export type MessengerSendOptions = {
   text?: string;
   quickReplies?: Array<{ title: string; payload: string }>;
   attachments?: Array<{ type: 'image' | 'file'; url: string }>;
+  // When true, delay the send by a human-like jitter.
+  // Useful to simulate a person typing before replying.
+  jitter?: boolean;
 };
 
 export async function sendMessengerMessage(
   options: MessengerSendOptions,
 ): Promise<void> {
+  const enableSends = String(process.env.ENABLE_MESSENGER_SEND ?? 'true')
+    .toLowerCase()
+    .trim();
+  if (['0', 'false', 'no', 'off'].includes(enableSends)) {
+    console.info('Messenger send disabled via ENABLE_MESSENGER_SEND; message logged instead.');
+    console.info(options);
+    return;
+  }
+
+  // Optional human-like delay
+  const wantJitter = options.jitter ?? true;
+  if (wantJitter) {
+    const minS = Number.parseInt(process.env.MESSENGER_JITTER_MIN_S ?? '15', 10);
+    const maxS = Number.parseInt(process.env.MESSENGER_JITTER_MAX_S ?? '45', 10);
+    if (!Number.isNaN(minS) && !Number.isNaN(maxS) && maxS >= minS && minS >= 0) {
+      const ms = Math.floor((minS + Math.random() * (maxS - minS)) * 1000);
+      await new Promise((resolve) => setTimeout(resolve, ms));
+    }
+  }
   const accessToken = process.env.FB_PAGE_ACCESS_TOKEN;
   const pageId = process.env.FB_PAGE_ID;
 

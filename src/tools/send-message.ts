@@ -49,6 +49,7 @@ async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> 
       text: input.text,
       quickReplies: input.quick_replies,
       attachments: input.attachments,
+      jitter: true,
     });
   } else {
     if (!input.text) {

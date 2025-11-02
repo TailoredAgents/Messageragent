@@ -27,6 +27,7 @@ async function dispatchReminder(jobId: string) {
       hour: 'numeric',
       minute: '2-digit',
     })} tomorrow. Reply if anything changes.`,
+    jitter: false,
   });
 
   if (job.lead.email) {

@@ -198,11 +198,17 @@ async function handleMessengerPost(
     body.entry?.flatMap((entry) => entry.messaging ?? []).filter(Boolean) ??
     [];
 
+  // Process asynchronously so webhook returns fast and we can add human-like
+  // delays before replying without risking Facebook timeouts.
   for (const event of events) {
-    await processMessengerEvent(event);
+    // Fire and forget with error logging.
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
+    processMessengerEvent(event).catch((error) => {
+      request.log.error({ err: error }, 'Messenger event processing failed');
+    });
   }
 
-  return reply.send({ status: 'received' });
+  return reply.send({ status: 'queued' });
 }
 
 async function handleMessengerVerify(

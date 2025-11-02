@@ -66,7 +66,14 @@ async function main(): Promise<void> {
   await server.register(smsRoutes);
   await server.register(adminRoutes);
 
-  startReminderScheduler();
+  const enableReminders = String(process.env.ENABLE_REMINDERS ?? 'true')
+    .toLowerCase()
+    .trim();
+  if (!['0', 'false', 'no', 'off'].includes(enableReminders)) {
+    startReminderScheduler();
+  } else {
+    server.log.info('Reminders disabled via ENABLE_REMINDERS');
+  }
 
   const port = Number.parseInt(process.env.PORT ?? '3000', 10);
   const host = process.env.HOST ?? '0.0.0.0';

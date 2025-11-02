@@ -22,11 +22,15 @@ Messenger-first junk removal quoting agent built on the OpenAI Agents SDK. Ships
 | `FB_APP_SECRET` | Facebook App secret. |
 | `FB_PAGE_ACCESS_TOKEN` | Page access token for sending messages. |
 | `FB_VERIFY_TOKEN` | Shared secret used during webhook verification. |
+| `ENABLE_MESSENGER_SEND` *(optional)* | When set to `false`, skips calling the Facebook Send API and logs messages instead (useful for testing). Defaults to `true`. |
+| `ENABLE_REMINDERS` *(optional)* | When set to `false`, disables the background reminder scheduler. Defaults to `true`. |
 | `TWILIO_ACCOUNT_SID` | Account SID for Twilio REST API (SMS). |
 | `TWILIO_AUTH_TOKEN` | Auth token for Twilio REST API and webhook validation. |
 | `TWILIO_FROM_NUMBER` | Twilio phone number (E.164) used to send outbound SMS. |
 | `TWILIO_WEBHOOK_URL` *(optional)* | Absolute URL Twilio should send webhooks to (used for signature validation when behind proxies). |
 | `PORT` *(optional)* | Port to bind locally (default `3000`). |
+| `MESSENGER_JITTER_MIN_S` *(optional)* | Minimum seconds to delay Messenger replies (default `15`). |
+| `MESSENGER_JITTER_MAX_S` *(optional)* | Maximum seconds to delay Messenger replies (default `45`). |
 
 ### Local Development
 
