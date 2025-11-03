@@ -6,30 +6,44 @@ import { sendMessengerMessage } from '../adapters/messenger.ts';
 import { sendSmsMessage } from '../adapters/twilio.ts';
 import { prisma } from '../lib/prisma.ts';
 
-const sendMessageParameters = z.object({
-  lead_id: z.string().uuid('lead_id must be a valid UUID'),
-  channel: z.union([z.literal('messenger'), z.literal('sms')]),
-  to: z.string(),
-  text: z.string().max(1500).optional(),
-  quick_replies: z
-    .array(
-      z.object({
-        title: z.string().max(20),
-        payload: z.string().max(256),
-      }),
-    )
-    .max(11)
-    .optional(),
-  attachments: z
-    .array(
-      z.object({
-        type: z.enum(['image', 'file']),
-        url: z.string().url(),
-      }),
-    )
-    .max(1)
-    .optional(),
-});
+const sendMessageParameters = z
+  .object({
+    lead_id: z.string().uuid('lead_id must be a valid UUID'),
+    channel: z.union([z.literal('messenger'), z.literal('sms')]),
+    to: z
+      .string()
+      .trim()
+      .min(1, 'to must be a non-empty string')
+      .optional(),
+    text: z.string().max(1500).optional(),
+    quick_replies: z
+      .array(
+        z.object({
+          title: z.string().max(20),
+          payload: z.string().max(256),
+        }),
+      )
+      .max(11)
+      .optional(),
+    attachments: z
+      .array(
+        z.object({
+          type: z.enum(['image', 'file']),
+          url: z.string().url(),
+        }),
+      )
+      .max(1)
+      .optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.channel === 'sms' && !input.to) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'SMS messages must include a recipient phone number.',
+        path: ['to'],
+      });
+    }
+  });
 
 type SendMessageInput = z.infer<typeof sendMessageParameters>;
 
@@ -43,9 +57,22 @@ async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> 
     throw new Error('Lead not found for messaging.');
   }
 
+  const recipient =
+    input.channel === 'messenger'
+      ? input.to ?? lead.messengerPsid ?? undefined
+      : input.to;
+
+  if (!recipient) {
+    throw new Error(
+      input.channel === 'messenger'
+        ? 'Messenger recipient missing and no stored PSID found.'
+        : 'SMS recipient missing.',
+    );
+  }
+
   if (input.channel === 'messenger') {
     await sendMessengerMessage({
-      to: input.to,
+      to: recipient,
       text: input.text,
       quickReplies: input.quick_replies,
       attachments: input.attachments,
@@ -55,7 +82,7 @@ async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> 
     if (!input.text) {
       throw new Error('SMS messages must include text content.');
     }
-    await sendSmsMessage(input.to, input.text);
+    await sendSmsMessage(recipient, input.text);
   }
 
   await prisma.lead.update({
@@ -72,8 +99,9 @@ async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> 
       action: 'send_message',
       payload: {
         channel: input.channel,
-        to: input.to,
+        to: recipient,
         has_quick_replies: Boolean(input.quick_replies?.length),
+        recipient_inferred: input.to !== recipient,
       } as Prisma.JsonObject,
     },
   });
