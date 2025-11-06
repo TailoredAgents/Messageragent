@@ -1,7 +1,7 @@
 import { format } from 'date-fns';
 import { z } from 'zod';
 
-import { getOpenAIClient } from './openai.js';
+import { getOpenAIClient } from './openai.ts';
 
 const DEFAULT_EMAIL_MODEL =
   process.env.EMAIL_MODEL ?? process.env.AGENT_MODEL ?? 'gpt-4.1-mini';
@@ -213,4 +213,3 @@ export async function generateReminderEmail(
 
   return generateEmail(prompt);
 }
-

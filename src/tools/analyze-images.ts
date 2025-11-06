@@ -10,11 +10,18 @@ const ANALYZE_MODEL_PRIMARY = process.env.ANALYZE_MODEL_PRIMARY ?? 'gpt-5-mini';
 const ANALYZE_MODEL_ESCALATION =
   process.env.ANALYZE_MODEL_ESCALATION ?? 'gpt-5';
 
-const analyzeImagesParameters = z.object({
-  lead_id: z.string().uuid('lead_id must be a valid UUID'),
-  images: z.array(z.string().url('image URLs must be valid HTTPS URLs')).min(1),
-  notes: z.string().max(500).optional(),
-});
+const analyzeImagesParameters = z
+  .object({
+    lead_id: z.string().uuid('lead_id must be a valid UUID'),
+    images: z
+      .array(z.string().url('image URLs must be valid HTTPS URLs'))
+      .min(1),
+    notes: z.string().max(500).nullish(),
+  })
+  .transform((data) => ({
+    ...data,
+    notes: data.notes ?? undefined,
+  }));
 
 type AnalyzeImagesInput = z.infer<typeof analyzeImagesParameters>;
 
@@ -193,12 +200,51 @@ async function analyzeImages(
   };
 }
 
+const analyzeImagesJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    lead_id: {
+      type: 'string',
+      description: 'Lead identifier tied to the images being analyzed.',
+    },
+    images: {
+      type: 'array',
+      description: 'HTTPS image URLs to evaluate.',
+      items: {
+        type: 'string',
+        pattern: '^https://.+',
+      },
+      minItems: 1,
+    },
+    notes: {
+      description: 'Optional operator notes or extra context.',
+      anyOf: [
+        {
+          type: 'string',
+          maxLength: 500,
+        },
+        { type: 'null' },
+      ],
+      default: null,
+    },
+  },
+  required: ['lead_id', 'images', 'notes'],
+  $schema: 'http://json-schema.org/draft-07/schema#',
+} as const;
+
 export function buildAnalyzeImagesTool() {
   return tool({
     name: 'analyze_images',
     description:
       'Analyze junk removal photos and return structured load features for pricing decisions.',
-    parameters: analyzeImagesParameters,
-    execute: analyzeImages,
+    parameters: analyzeImagesJsonSchema,
+    execute: async (args) =>
+      analyzeImages(
+        analyzeImagesParameters.parse({
+          notes: null,
+          ...args,
+        }),
+      ),
   });
 }

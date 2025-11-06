@@ -7,6 +7,7 @@ import {
   buildProposeSlotsTool,
   buildSendMessageTool,
 } from '../tools/index.ts';
+import { validateToolDefinition } from '../lib/tool-validation.ts';
 
 const BASE_MODEL = process.env.AGENT_MODEL ?? 'gpt-5-mini';
 
@@ -48,18 +49,34 @@ export function getJunkQuoteAgent(): Agent {
     return cachedAgent;
   }
 
+  const tools = [
+    buildAnalyzeImagesTool(),
+    buildPriceFromRulesTool(),
+    buildProposeSlotsTool(),
+    buildConfirmSlotTool(),
+    buildSendMessageTool(),
+  ];
+
+  tools.forEach((tool) => {
+    try {
+      validateToolDefinition(tool);
+    } catch (error) {
+      console.error(`Tool schema validation failed for "${tool.name}"`, error);
+      throw error;
+    }
+  });
+
   cachedAgent = new Agent({
     name: 'Austin',
     instructions: SYSTEM_INSTRUCTIONS,
     model: BASE_MODEL,
-    tools: [
-      buildAnalyzeImagesTool(),
-      buildPriceFromRulesTool(),
-      buildProposeSlotsTool(),
-      buildConfirmSlotTool(),
-      buildSendMessageTool(),
-    ],
+    tools,
   });
+
+  console.info(
+    '[Agent] Registered tools:',
+    tools.map((tool) => tool.name).join(', '),
+  );
 
   return cachedAgent;
 }

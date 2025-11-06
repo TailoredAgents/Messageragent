@@ -22,11 +22,16 @@ const featuresSchema = z.object({
   confidence: z.number().min(0).max(1),
 });
 
-const priceFromRulesParameters = z.object({
-  lead_id: z.string().uuid('lead_id must be a valid UUID'),
-  features: featuresSchema,
-  notes: z.array(z.string()).optional(),
-});
+const priceFromRulesParameters = z
+  .object({
+    lead_id: z.string().uuid('lead_id must be a valid UUID'),
+    features: featuresSchema,
+    notes: z.array(z.string()).nullish(),
+  })
+  .transform((data) => ({
+    ...data,
+    notes: data.notes ?? undefined,
+  }));
 
 type PriceFromRulesInput = z.infer<typeof priceFromRulesParameters>;
 
@@ -155,12 +160,111 @@ async function priceFromRules(
   };
 }
 
+const priceFromRulesJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    lead_id: {
+      type: 'string',
+      description: 'Lead identifier to evaluate pricing for.',
+    },
+    features: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Structured vision features describing the junk load.',
+      properties: {
+        volume_class: {
+          type: 'string',
+          description: 'Qualitative volume bucket (e.g., quarter load).',
+        },
+        cubic_yards_est: {
+          type: 'number',
+          minimum: 0,
+          description: 'Estimated volume in cubic yards.',
+        },
+        bedload: {
+          type: 'boolean',
+          description: 'Whether the load is primarily loose material.',
+        },
+        bedload_type: {
+          description: 'Specific bedload material if applicable.',
+          anyOf: [{ type: 'string' }, { type: 'null' }],
+          default: null,
+        },
+        heavy_items: {
+          type: 'array',
+          description: 'List of heavy or regulated items detected.',
+          items: { type: 'string' },
+          default: [],
+        },
+        stairs_flights: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Number of stair flights to move items.',
+        },
+        carry_distance_ft: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Carry distance from curb in feet.',
+        },
+        curbside: {
+          type: 'boolean',
+          description: 'Whether items are staged curbside.',
+        },
+        hazards: {
+          type: 'array',
+          description: 'Safety hazards present in the images.',
+          items: { type: 'string' },
+          default: [],
+        },
+        confidence: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Vision model confidence from 0-1.',
+        },
+      },
+      required: [
+        'volume_class',
+        'cubic_yards_est',
+        'bedload',
+        'bedload_type',
+        'heavy_items',
+        'stairs_flights',
+        'carry_distance_ft',
+        'curbside',
+        'hazards',
+        'confidence',
+      ],
+    },
+    notes: {
+      description: 'Additional operator notes to include on the quote.',
+      anyOf: [
+        {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        { type: 'null' },
+      ],
+      default: null,
+    },
+  },
+  required: ['lead_id', 'features', 'notes'],
+  $schema: 'http://json-schema.org/draft-07/schema#',
+} as const;
+
 export function buildPriceFromRulesTool() {
   return tool({
     name: 'price_from_rules',
     description:
       'Apply pricebook rules to structured features and create a persisted quote.',
-    parameters: priceFromRulesParameters,
-    execute: priceFromRules,
+    parameters: priceFromRulesJsonSchema,
+    execute: async (args) =>
+      priceFromRules(
+        priceFromRulesParameters.parse({
+          notes: null,
+          ...args,
+        }),
+      ),
   });
 }

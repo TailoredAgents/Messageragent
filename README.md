@@ -17,6 +17,15 @@ The OpenAI Agents SDK is a lightweight yet powerful framework for building multi
 
 Explore the [examples](examples) directory to see the SDK in action, and read our [documentation](https://openai.github.io/openai-agents-python/) for more details.
 
+## Messenger junk quote service
+
+This repository also contains a TypeScript service (`src/`) that powers the Messenger-based JunkQuote agent. Helpful commands:
+
+- `npm run simulate:messenger [lead-id] "customer message"` – run the agent locally against a lead (falls back to the most recent lead if no ID is provided).
+- `npm run test` – executes vitest, including a guard that verifies every tool exposes a fully-specified JSON schema.
+
+Tool schemas are validated at startup; any invalid schema will cause the service to log the failure and abort agent construction.
+
 ## Get started
 
 To get started, set up your Python environment (Python 3.9 or newer required), and then install OpenAI Agents SDK package.

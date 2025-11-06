@@ -8,17 +8,30 @@ import { generateBookingConfirmationEmail } from '../lib/email-content.ts';
 import { sendTransactionalEmail } from '../lib/email.ts';
 import { prisma } from '../lib/prisma.ts';
 
-const confirmSlotParameters = z.object({
-  lead_id: z.string().uuid('lead_id must be a valid UUID'),
-  slot: z.object({
+const slotSchema = z
+  .object({
     id: z.string(),
     window_start: z.string(),
     window_end: z.string(),
-    label: z.string().optional(),
-  }),
-  quote_id: z.string().uuid().optional(),
-  notes: z.string().optional(),
-});
+    label: z.string().nullish(),
+  })
+  .transform((slot) => ({
+    ...slot,
+    label: slot.label ?? undefined,
+  }));
+
+const confirmSlotParameters = z
+  .object({
+    lead_id: z.string().uuid('lead_id must be a valid UUID'),
+    slot: slotSchema,
+    quote_id: z.string().uuid().nullish(),
+    notes: z.string().nullish(),
+  })
+  .transform((data) => ({
+    ...data,
+    quote_id: data.quote_id ?? undefined,
+    notes: data.notes ?? undefined,
+  }));
 
 type ConfirmSlotInput = z.infer<typeof confirmSlotParameters>;
 
@@ -189,12 +202,79 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
   };
 }
 
+const confirmSlotJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    lead_id: {
+      type: 'string',
+      description: 'Lead identifier for the booking being confirmed.',
+    },
+    slot: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Identifier for the proposed slot that was accepted.',
+        },
+        window_start: {
+          type: 'string',
+          description: 'ISO timestamp when the pickup window opens.',
+          format: 'date-time',
+        },
+        window_end: {
+          type: 'string',
+          description: 'ISO timestamp when the pickup window closes.',
+          format: 'date-time',
+        },
+        label: {
+          description: 'Optional label shown to the customer.',
+          anyOf: [{ type: 'string' }, { type: 'null' }],
+          default: null,
+        },
+      },
+      required: ['id', 'window_start', 'window_end', 'label'],
+    },
+    quote_id: {
+      description: 'Quote identifier to associate with the job.',
+      anyOf: [
+        {
+          type: 'string',
+          format: 'uuid',
+        },
+        { type: 'null' },
+      ],
+      default: null,
+    },
+    notes: {
+      description: 'Optional notes to record with the booking.',
+      anyOf: [{ type: 'string' }, { type: 'null' }],
+      default: null,
+    },
+  },
+  required: ['lead_id', 'slot', 'quote_id', 'notes'],
+  $schema: 'http://json-schema.org/draft-07/schema#',
+} as const;
+
 export function buildConfirmSlotTool() {
   return tool({
     name: 'confirm_slot',
     description:
       'Books the customer into a pickup window, creates a job, and schedules an automatic reminder.',
-    parameters: confirmSlotParameters,
-    execute: confirmSlot,
+    parameters: confirmSlotJsonSchema,
+    execute: async (args) => {
+      const raw = args as Record<string, unknown>;
+      const normalized = {
+        quote_id: null,
+        notes: null,
+        ...raw,
+        slot: {
+          label: null,
+          ...((raw.slot as Record<string, unknown> | undefined) ?? {}),
+        },
+      };
+      return confirmSlot(confirmSlotParameters.parse(normalized));
+    },
   });
 }

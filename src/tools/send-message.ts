@@ -14,8 +14,8 @@ const sendMessageParameters = z
       .string()
       .trim()
       .min(1, 'to must be a non-empty string')
-      .optional(),
-    text: z.string().max(1500).optional(),
+      .nullish(),
+    text: z.string().max(1500).nullish(),
     quick_replies: z
       .array(
         z.object({
@@ -24,7 +24,7 @@ const sendMessageParameters = z
         }),
       )
       .max(11)
-      .optional(),
+      .nullish(),
     attachments: z
       .array(
         z.object({
@@ -33,7 +33,7 @@ const sendMessageParameters = z
         }),
       )
       .max(1)
-      .optional(),
+      .nullish(),
   })
   .superRefine((input, ctx) => {
     if (input.channel === 'sms' && !input.to) {
@@ -43,7 +43,14 @@ const sendMessageParameters = z
         path: ['to'],
       });
     }
-  });
+  })
+  .transform((input) => ({
+    ...input,
+    to: input.to ?? undefined,
+    text: input.text ?? undefined,
+    quick_replies: input.quick_replies ?? undefined,
+    attachments: input.attachments ?? undefined,
+  }));
 
 type SendMessageInput = z.infer<typeof sendMessageParameters>;
 
@@ -110,11 +117,111 @@ async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> 
 }
 
 export function buildSendMessageTool() {
+  const sendMessageJsonSchema = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      lead_id: {
+        type: 'string',
+        description: 'Lead identifier associated with the outbound message.',
+      },
+      channel: {
+        type: 'string',
+        enum: ['messenger', 'sms'],
+        description: 'Delivery channel for the message.',
+      },
+      to: {
+        description:
+          'Destination user identifier or phone number. For Messenger, leave null to fall back to the stored PSID.',
+        anyOf: [
+          { type: 'string', minLength: 1 },
+          { type: 'null' },
+        ],
+        default: null,
+      },
+      text: {
+        description: 'Optional message body.',
+        anyOf: [
+          { type: 'string', maxLength: 1500 },
+          { type: 'null' },
+        ],
+        default: null,
+      },
+      quick_replies: {
+        description: 'Optional Messenger quick reply buttons.',
+        anyOf: [
+          {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                title: {
+                  type: 'string',
+                  maxLength: 20,
+                  description: 'Label presented to the customer.',
+                },
+                payload: {
+                  type: 'string',
+                  maxLength: 256,
+                  description: 'Payload returned when the button is tapped.',
+                },
+              },
+              required: ['title', 'payload'],
+            },
+            maxItems: 11,
+          },
+          { type: 'null' },
+        ],
+        default: null,
+      },
+      attachments: {
+        description: 'Optional image or file attachment (Messenger only).',
+        anyOf: [
+          {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                type: {
+                  type: 'string',
+                  enum: ['image', 'file'],
+                  description: 'Attachment type supported by Messenger.',
+                },
+                url: {
+                  type: 'string',
+                  description: 'Public HTTPS URL for the attachment.',
+                  pattern: '^https://.+',
+                },
+              },
+              required: ['type', 'url'],
+            },
+            maxItems: 1,
+          },
+          { type: 'null' },
+        ],
+        default: null,
+      },
+    },
+    required: ['lead_id', 'channel', 'to', 'text', 'quick_replies', 'attachments'],
+    $schema: 'http://json-schema.org/draft-07/schema#',
+  } as const;
+
   return tool({
     name: 'send_message',
     description:
       'Send a reply to the customer via Messenger. Always call this to deliver final responses.',
-    parameters: sendMessageParameters,
-    execute: sendMessage,
+    parameters: sendMessageJsonSchema,
+    execute: async (args) =>
+      sendMessage(
+        sendMessageParameters.parse({
+          to: null,
+          text: null,
+          quick_replies: null,
+          attachments: null,
+          ...args,
+        }),
+      ),
   });
 }

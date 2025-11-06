@@ -6,10 +6,15 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.ts';
 import { ProposedSlot } from '../lib/types.ts';
 
-const proposeSlotsParameters = z.object({
-  lead_id: z.string().uuid('lead_id must be a valid UUID'),
-  preferred_day: z.string().optional(),
-});
+const proposeSlotsParameters = z
+  .object({
+    lead_id: z.string().uuid('lead_id must be a valid UUID'),
+    preferred_day: z.string().nullish(),
+  })
+  .transform((data) => ({
+    ...data,
+    preferred_day: data.preferred_day ?? undefined,
+  }));
 
 type ProposeSlotsInput = z.infer<typeof proposeSlotsParameters>;
 
@@ -93,12 +98,37 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
   return { slots };
 }
 
+const proposeSlotsJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    lead_id: {
+      type: 'string',
+      description: 'Lead identifier to propose scheduling options for.',
+    },
+    preferred_day: {
+      description:
+        'Optional ISO date string pushing proposed windows toward a day.',
+      anyOf: [{ type: 'string' }, { type: 'null' }],
+      default: null,
+    },
+  },
+  required: ['lead_id', 'preferred_day'],
+  $schema: 'http://json-schema.org/draft-07/schema#',
+} as const;
+
 export function buildProposeSlotsTool() {
   return tool({
     name: 'propose_slots',
     description:
       'Suggests two junk pickup windows for the customer to choose from. Use before booking.',
-    parameters: proposeSlotsParameters,
-    execute: proposeSlots,
+    parameters: proposeSlotsJsonSchema,
+    execute: async (args) =>
+      proposeSlots(
+        proposeSlotsParameters.parse({
+          preferred_day: null,
+          ...args,
+        }),
+      ),
   });
 }

@@ -42,6 +42,8 @@ type MessengerWebhookPayload = {
 
 const CURBSIDE_KEYWORDS = ['curbside', 'driveway', 'garage', 'staged'];
 
+type Logger = Pick<FastifyRequest['log'], 'info' | 'warn' | 'error' | 'child'>;
+
 const sanitizeText = (text: string | undefined): string | null => {
   if (!text) {
     return null;
@@ -73,7 +75,7 @@ async function ensureLead(
   return { lead: created, isNew: true };
 }
 
-function buildAgentInput({
+export function buildAgentInput({
   lead,
   text,
   attachments,
@@ -105,7 +107,7 @@ function buildAgentInput({
   ].join('\n');
 }
 
-async function processMessengerEvent(event: MessengerEvent) {
+async function processMessengerEvent(event: MessengerEvent, log: Logger) {
   const psid = event.sender.id;
   const message = event.message;
   const postbackPayload = event.postback?.payload;
@@ -171,6 +173,18 @@ async function processMessengerEvent(event: MessengerEvent) {
     attachments,
   });
 
+  const start = Date.now();
+  log.info(
+    {
+      leadId: lead.id,
+      psid,
+      isNewLead: isNew,
+      message: textPayload,
+      attachmentCount: attachments.length,
+    },
+    'Messenger event received; starting agent run.',
+  );
+
   try {
     await runner.run(agent, inputText, {
       context: {
@@ -179,8 +193,25 @@ async function processMessengerEvent(event: MessengerEvent) {
         attachments,
       },
     });
+    log.info(
+      {
+        leadId: lead.id,
+        psid,
+        durationMs: Date.now() - start,
+        attachmentsAnalyzed: attachments.length,
+      },
+      'Agent run completed.',
+    );
   } catch (error) {
-    console.error('Agent run failed', error);
+    log.error(
+      {
+        leadId: lead.id,
+        psid,
+        durationMs: Date.now() - start,
+        err: error,
+      },
+      'Agent run failed',
+    );
     throw error;
   }
 }
@@ -203,7 +234,7 @@ async function handleMessengerPost(
   for (const event of events) {
     // Fire and forget with error logging.
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    processMessengerEvent(event).catch((error) => {
+    processMessengerEvent(event, request.log).catch((error) => {
       request.log.error({ err: error }, 'Messenger event processing failed');
     });
   }

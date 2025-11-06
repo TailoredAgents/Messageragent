@@ -1,32 +1,34 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  generateBookingConfirmationEmail,
-  generateReminderEmail,
-} from '../email-content.js';
-
-vi.mock('../openai.js', () => {
-  const create = vi.fn();
-  return {
-    getOpenAIClient: vi.fn(() => ({
-      responses: {
-        create,
-      },
-    })),
-    __mock__: { create },
-  };
-});
-
-const { __mock__ } = await import('../openai.js');
+let create: ReturnType<typeof vi.fn>;
+let getClientSpy: ReturnType<typeof vi.spyOn> | undefined;
+let emailModule: Awaited<typeof import('../email-content.ts')>;
 
 describe('email-content', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    vi.resetModules();
     vi.resetAllMocks();
     process.env.EMAIL_MODEL = 'test-email-model';
+
+    create = vi.fn();
+    const openaiModule = await import('../openai.ts');
+    getClientSpy = vi
+      .spyOn(openaiModule, 'getOpenAIClient')
+      .mockReturnValue({
+        responses: {
+          create,
+        },
+      } as unknown as ReturnType<typeof openaiModule.getOpenAIClient>);
+
+    emailModule = await import('../email-content.ts');
+  });
+
+  afterEach(() => {
+    getClientSpy?.mockRestore();
   });
 
   it('generates booking confirmation email payload', async () => {
-    __mock__.create.mockResolvedValue({
+    create.mockResolvedValue({
       output_text: JSON.stringify({
         subject: 'Booking confirmed',
         text: 'Text email',
@@ -34,7 +36,7 @@ describe('email-content', () => {
       }),
     });
 
-    const result = await generateBookingConfirmationEmail({
+    const result = await emailModule.generateBookingConfirmationEmail({
       leadName: 'Alex',
       companyName: 'Junk Co',
       address: '123 Main St',
@@ -57,22 +59,22 @@ describe('email-content', () => {
     expect(result.text).toBe('Text email');
     expect(result.html).toBe('<p>Text email</p>');
 
-    expect(__mock__.create).toHaveBeenCalledTimes(1);
-    const call = __mock__.create.mock.calls[0][0];
+    expect(create).toHaveBeenCalledTimes(1);
+    const call = create.mock.calls[0][0];
     expect(call.model).toBe('test-email-model');
     expect(call.input[1].content).toContain('Alex');
     expect(call.input[1].content).toContain('Final price may change');
   });
 
   it('generates reminder email payload', async () => {
-    __mock__.create.mockResolvedValue({
+    create.mockResolvedValue({
       output_text: JSON.stringify({
         subject: 'Reminder',
         text: 'Reminder text',
       }),
     });
 
-    const result = await generateReminderEmail({
+    const result = await emailModule.generateReminderEmail({
       leadName: 'Sam',
       address: '123 Main St',
       windowStart: new Date('2025-05-02T15:00:00Z'),
@@ -84,23 +86,22 @@ describe('email-content', () => {
     expect(result.subject).toBe('Reminder');
     expect(result.text).toBe('Reminder text');
 
-    expect(__mock__.create).toHaveBeenCalledTimes(1);
-    const call = __mock__.create.mock.calls[0][0];
+    expect(create).toHaveBeenCalledTimes(1);
+    const call = create.mock.calls[0][0];
     expect(call.input[1].content).toContain('Sam');
     expect(call.input[1].content).toContain('Crew will arrive');
   });
 
   it('throws when response lacks JSON', async () => {
-    __mock__.create.mockResolvedValue({
+    create.mockResolvedValue({
       output_text: 'not json',
     });
 
     await expect(
-      generateReminderEmail({
+      emailModule.generateReminderEmail({
         windowStart: new Date(),
         windowEnd: new Date(Date.now() + 60 * 60 * 1000),
       }),
     ).rejects.toThrow(/invalid JSON/i);
   });
 });
-
