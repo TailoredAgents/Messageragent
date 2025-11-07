@@ -78,12 +78,17 @@ async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> 
   }
 
   if (input.channel === 'messenger') {
+    const jitterPref = String(process.env.MESSENGER_JITTER_ENABLED ?? 'false')
+      .toLowerCase()
+      .trim();
+    const jitterEnabled = !['0', 'false', 'no', 'off'].includes(jitterPref);
+
     await sendMessengerMessage({
       to: recipient,
       text: input.text,
       quickReplies: input.quick_replies,
       attachments: input.attachments,
-      jitter: true,
+      jitter: jitterEnabled,
     });
   } else {
     if (!input.text) {
