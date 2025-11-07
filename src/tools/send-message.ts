@@ -9,13 +9,21 @@ import { prisma } from '../lib/prisma.ts';
 const sendMessageParameters = z
   .object({
     lead_id: z.string().uuid('lead_id must be a valid UUID'),
-    channel: z.union([z.literal('messenger'), z.literal('sms')]),
+    text: z
+      .string()
+      .transform((value) => value.trim())
+      .pipe(
+        z
+          .string()
+          .min(1, 'text must be a non-empty string')
+          .max(1500, 'text cannot exceed 1500 characters'),
+      ),
+    channel: z.enum(['messenger', 'sms']).optional(),
     to: z
       .string()
       .trim()
       .min(1, 'to must be a non-empty string')
-      .nullish(),
-    text: z.string().max(1500).nullish(),
+      .optional(),
     quick_replies: z
       .array(
         z.object({
@@ -24,7 +32,7 @@ const sendMessageParameters = z
         }),
       )
       .max(11)
-      .nullish(),
+      .optional(),
     attachments: z
       .array(
         z.object({
@@ -33,24 +41,22 @@ const sendMessageParameters = z
         }),
       )
       .max(1)
-      .nullish(),
-  })
-  .superRefine((input, ctx) => {
-    if (input.channel === 'sms' && !input.to) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'SMS messages must include a recipient phone number.',
-        path: ['to'],
-      });
-    }
+      .optional(),
   })
   .transform((input) => ({
     ...input,
+    channel: input.channel ?? undefined,
     to: input.to ?? undefined,
-    text: input.text ?? undefined,
     quick_replies: input.quick_replies ?? undefined,
     attachments: input.attachments ?? undefined,
   }));
+
+type RunnerToolContext = {
+  leadId?: string;
+  messengerPsid?: string;
+  smsFrom?: string;
+  attachments?: string[];
+};
 
 type SendMessageInput = z.infer<typeof sendMessageParameters>;
 
@@ -58,42 +64,48 @@ type SendMessageResult = {
   status: 'queued' | 'sent';
 };
 
-async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
+async function sendMessage(
+  input: SendMessageInput,
+  runContext?: RunnerToolContext,
+): Promise<SendMessageResult> {
   const lead = await prisma.lead.findUnique({ where: { id: input.lead_id } });
   if (!lead) {
     throw new Error('Lead not found for messaging.');
   }
 
-  const recipient =
-    input.channel === 'messenger'
-      ? input.to ?? lead.messengerPsid ?? undefined
-      : input.to;
+  const channel = resolveChannel(input.channel, lead.channel, runContext);
+  const recipient = resolveRecipient({
+    channel,
+    explicitRecipient: input.to,
+    lead,
+    context: runContext,
+  });
 
   if (!recipient) {
     throw new Error(
-      input.channel === 'messenger'
+      channel === 'messenger'
         ? 'Messenger recipient missing and no stored PSID found.'
         : 'SMS recipient missing.',
     );
   }
 
-  if (input.channel === 'messenger') {
-    const jitterPref = String(process.env.MESSENGER_JITTER_ENABLED ?? 'false')
-      .toLowerCase()
-      .trim();
-    const jitterEnabled = !['0', 'false', 'no', 'off'].includes(jitterPref);
+  if (channel === 'sms' && input.quick_replies?.length) {
+    throw new Error('Quick replies are not supported over SMS.');
+  }
 
+  if (channel === 'sms' && input.attachments?.length) {
+    throw new Error('Attachments are not supported over SMS.');
+  }
+
+  if (channel === 'messenger') {
     await sendMessengerMessage({
       to: recipient,
       text: input.text,
       quickReplies: input.quick_replies,
       attachments: input.attachments,
-      jitter: jitterEnabled,
+      jitter: isMessengerJitterEnabled(),
     });
   } else {
-    if (!input.text) {
-      throw new Error('SMS messages must include text content.');
-    }
     await sendSmsMessage(recipient, input.text);
   }
 
@@ -110,10 +122,10 @@ async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> 
       actor: 'agent',
       action: 'send_message',
       payload: {
-        channel: input.channel,
+        channel,
         to: recipient,
         has_quick_replies: Boolean(input.quick_replies?.length),
-        recipient_inferred: input.to !== recipient,
+        recipient_inferred: !input.to,
       } as Prisma.JsonObject,
     },
   });
@@ -121,8 +133,52 @@ async function sendMessage(input: SendMessageInput): Promise<SendMessageResult> 
   return { status: 'sent' };
 }
 
-export function buildSendMessageTool() {
-  const sendMessageJsonSchema = {
+function resolveChannel(
+  explicitChannel: SendMessageInput['channel'],
+  leadChannel: Prisma.Channel,
+  context?: RunnerToolContext,
+): 'messenger' | 'sms' {
+  if (explicitChannel) {
+    return explicitChannel;
+  }
+  if (context?.smsFrom) {
+    return 'sms';
+  }
+  if (context?.messengerPsid) {
+    return 'messenger';
+  }
+  return leadChannel ?? 'messenger';
+}
+
+function resolveRecipient({
+  channel,
+  explicitRecipient,
+  lead,
+  context,
+}: {
+  channel: 'messenger' | 'sms';
+  explicitRecipient?: string;
+  lead: { messengerPsid: string | null; phone: string | null };
+  context?: RunnerToolContext;
+}): string | undefined {
+  if (explicitRecipient) {
+    return explicitRecipient;
+  }
+  if (channel === 'messenger') {
+    return context?.messengerPsid ?? lead.messengerPsid ?? undefined;
+  }
+  return context?.smsFrom ?? lead.phone ?? undefined;
+}
+
+function isMessengerJitterEnabled(): boolean {
+  const jitterPref = String(process.env.MESSENGER_JITTER_ENABLED ?? 'false')
+    .toLowerCase()
+    .trim();
+  return !['0', 'false', 'no', 'off'].includes(jitterPref);
+}
+
+function buildSendMessageJsonSchema() {
+  return {
     type: 'object',
     additionalProperties: false,
     properties: {
@@ -130,103 +186,30 @@ export function buildSendMessageTool() {
         type: 'string',
         description: 'Lead identifier associated with the outbound message.',
       },
-      channel: {
-        type: 'string',
-        enum: ['messenger', 'sms'],
-        description: 'Delivery channel for the message.',
-      },
-      to: {
-        description:
-          'Destination user identifier or phone number. For Messenger, leave null to fall back to the stored PSID.',
-        anyOf: [
-          { type: 'string', minLength: 1 },
-          { type: 'null' },
-        ],
-        default: null,
-      },
       text: {
-        description: 'Optional message body.',
-        anyOf: [
-          { type: 'string', maxLength: 1500 },
-          { type: 'null' },
-        ],
-        default: null,
-      },
-      quick_replies: {
-        description: 'Optional Messenger quick reply buttons.',
-        anyOf: [
-          {
-            type: 'array',
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                title: {
-                  type: 'string',
-                  maxLength: 20,
-                  description: 'Label presented to the customer.',
-                },
-                payload: {
-                  type: 'string',
-                  maxLength: 256,
-                  description: 'Payload returned when the button is tapped.',
-                },
-              },
-              required: ['title', 'payload'],
-            },
-            maxItems: 11,
-          },
-          { type: 'null' },
-        ],
-        default: null,
-      },
-      attachments: {
-        description: 'Optional image or file attachment (Messenger only).',
-        anyOf: [
-          {
-            type: 'array',
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                type: {
-                  type: 'string',
-                  enum: ['image', 'file'],
-                  description: 'Attachment type supported by Messenger.',
-                },
-                url: {
-                  type: 'string',
-                  description: 'Public HTTPS URL for the attachment.',
-                  pattern: '^https://.+',
-                },
-              },
-              required: ['type', 'url'],
-            },
-            maxItems: 1,
-          },
-          { type: 'null' },
-        ],
-        default: null,
+        type: 'string',
+        maxLength: 1500,
+        description:
+          'Customer-facing response. Keep tone human and conversational.',
       },
     },
-    required: ['lead_id', 'channel', 'to', 'text', 'quick_replies', 'attachments'],
+    required: ['lead_id', 'text'],
     $schema: 'http://json-schema.org/draft-07/schema#',
   } as const;
+}
+
+export function buildSendMessageTool() {
+  const sendMessageJsonSchema = buildSendMessageJsonSchema();
 
   return tool({
     name: 'send_message',
     description:
-      'Send a reply to the customer via Messenger. Always call this to deliver final responses.',
+      'Send a reply to the customer via Messenger or SMS. Always call this to deliver final responses.',
     parameters: sendMessageJsonSchema,
-    execute: async (args) =>
+    execute: async (args, runContext) =>
       sendMessage(
-        sendMessageParameters.parse({
-          to: null,
-          text: null,
-          quick_replies: null,
-          attachments: null,
-          ...args,
-        }),
+        sendMessageParameters.parse(args),
+        (runContext?.context as RunnerToolContext | undefined) ?? undefined,
       ),
   });
 }
