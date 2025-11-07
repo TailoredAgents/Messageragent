@@ -229,7 +229,7 @@ const analyzeImagesJsonSchema = {
       default: null,
     },
   },
-  required: ['lead_id', 'images', 'notes'],
+  required: ['lead_id', 'images'],
   $schema: 'http://json-schema.org/draft-07/schema#',
 } as const;
 
