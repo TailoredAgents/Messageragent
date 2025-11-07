@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+const DOWNLOAD_TIMEOUT_MS = Number(process.env.IMAGE_REHOST_TIMEOUT_MS ?? 10_000);
+const MAX_BYTES = Number(process.env.IMAGE_REHOST_MAX_BYTES ?? 8 * 1024 * 1024); // 8MB default
+
 function isHttpUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -12,13 +15,23 @@ function isHttpUrl(url: string): boolean {
 }
 
 async function downloadToBuffer(url: string): Promise<{ data: Buffer; contentType?: string }> {
-  const res = await fetch(url, { method: 'GET' });
-  if (!res.ok) {
-    throw new Error(`Download failed: ${res.status} ${res.statusText}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    if (!res.ok) {
+      throw new Error(`Download failed: ${res.status} ${res.statusText}`);
+    }
+    const contentType = res.headers.get('content-type') ?? undefined;
+    const arrayBuf = await res.arrayBuffer();
+    const data = Buffer.from(arrayBuf);
+    if (data.length > MAX_BYTES) {
+      throw new Error(`Image exceeds max size (${MAX_BYTES} bytes)`);
+    }
+    return { data, contentType };
+  } finally {
+    clearTimeout(timeout);
   }
-  const contentType = res.headers.get('content-type') ?? undefined;
-  const arrayBuf = await res.arrayBuffer();
-  return { data: Buffer.from(arrayBuf), contentType };
 }
 
 function pickExtension(contentType?: string): '.jpg' | '.jpeg' | '.png' | '.bin' {

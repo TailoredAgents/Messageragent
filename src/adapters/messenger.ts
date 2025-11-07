@@ -1,5 +1,17 @@
+import { createHash } from 'node:crypto';
+
 const GRAPH_API_VERSION = process.env.FB_GRAPH_VERSION ?? 'v17.0';
 const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+
+let tokenFingerprintLogged = false;
+
+function getTokenFingerprint(token: string | undefined): string {
+  if (!token) {
+    return '[missing]';
+  }
+  const hash = createHash('sha256').update(token).digest('hex');
+  return `${hash.slice(0, 6)}…${hash.slice(-4)}`;
+}
 
 export type MessengerSendOptions = {
   to: string;
@@ -42,7 +54,15 @@ export async function sendMessengerMessage(
     return;
   }
 
-  const endpoint = `${GRAPH_BASE_URL}/${pageId}/messages`;
+  if (!tokenFingerprintLogged) {
+    tokenFingerprintLogged = true;
+    console.info('[Messenger] Using page token', {
+      pageId,
+      tokenHash: getTokenFingerprint(accessToken),
+    });
+  }
+
+  const endpoint = `${GRAPH_BASE_URL}/${pageId}/messages?access_token=${encodeURIComponent(accessToken)}`;
 
   const body: Record<string, unknown> = {
     messaging_type: 'RESPONSE',
@@ -79,7 +99,6 @@ export async function sendMessengerMessage(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify(body),
   });
