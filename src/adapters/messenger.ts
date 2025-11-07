@@ -39,7 +39,7 @@ export async function sendMessengerMessage(
   const wantJitter = options.jitter ?? true;
   if (wantJitter) {
     const minS = Number.parseInt(process.env.MESSENGER_JITTER_MIN_S ?? '15', 10);
-    const maxS = Number.parseInt(process.env.MESSENGER_JITTER_MAX_S ?? '45', 10);
+    const maxS = Number.parseInt(process.env.MESSENGER_JITTER_MAX_S ?? '35', 10);
     if (!Number.isNaN(minS) && !Number.isNaN(maxS) && maxS >= minS && minS >= 0) {
       const ms = Math.floor((minS + Math.random() * (maxS - minS)) * 1000);
       await new Promise((resolve) => setTimeout(resolve, ms));

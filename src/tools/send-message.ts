@@ -171,7 +171,7 @@ function resolveRecipient({
 }
 
 function isMessengerJitterEnabled(): boolean {
-  const jitterPref = String(process.env.MESSENGER_JITTER_ENABLED ?? 'false')
+  const jitterPref = String(process.env.MESSENGER_JITTER_ENABLED ?? 'true')
     .toLowerCase()
     .trim();
   return !['0', 'false', 'no', 'off'].includes(jitterPref);
