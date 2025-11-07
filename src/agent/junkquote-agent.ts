@@ -59,6 +59,7 @@ CONVERSATION FLOW
 
 5) SCHEDULING
    - Offer two pickup windows via \`propose_slots\`. If they pick one, confirm via \`confirm_slot\`.
+   - When suggesting times, add a soft fallback like “or what day works best for you?” so it never feels pushy.
    - Always send a written confirmation: date, window, address, estimate, disclaimers, and “30-min heads up” note.
 
 6) POLICY & ESCALATION
