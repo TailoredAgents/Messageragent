@@ -167,6 +167,7 @@ async function callVisionModel(
     if (code === 'unsupported_parameter') {
       response = await createWithNewParam();
     } else {
+      logVisionUrlIssue(err, input.images);
       throw err;
     }
   }
@@ -224,6 +225,7 @@ export async function runVisionAnalysis(
   try {
     result = await callVisionModel(ANALYZE_MODEL_PRIMARY, input);
   } catch (err) {
+    logVisionUrlIssue(err, input.images);
     // Cache the attachment hash on model failure to prevent repeated retries on same inputs.
     if (options.attachmentHash) {
       const prev = ((previousMetadata as Prisma.JsonObject | null) ?? {}) as Record<
@@ -259,6 +261,7 @@ export async function runVisionAnalysis(
         escalatedModel = ANALYZE_MODEL_ESCALATION;
       }
     } catch (error) {
+      logVisionUrlIssue(error, input.images);
       console.warn('Vision escalation failed, falling back to primary.', error);
     }
   }
@@ -348,4 +351,23 @@ export function buildAnalyzeImagesTool() {
         { trigger: 'agent' },
       ),
   });
+}
+
+function logVisionUrlIssue(error: unknown, images: string[]) {
+  const err = error as Record<string, unknown> & {
+    code?: string;
+    param?: string;
+    message?: string;
+  };
+  const nested = (err?.error as Record<string, unknown>) ?? {};
+  const code = (err.code as string | undefined) ?? (nested.code as string | undefined);
+  const param = (err.param as string | undefined) ?? (nested.param as string | undefined);
+
+  if (code === 'invalid_value' && param && param.includes('image_url')) {
+    console.error('[Vision] Invalid image_url provided to OpenAI', {
+      message: (err.message as string | undefined) ?? (nested.message as string | undefined),
+      param,
+      sampleImages: images.slice(0, 4),
+    });
+  }
 }
