@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { hashJson } from '../lib/hash.ts';
 import { getOpenAIClient } from '../lib/openai.ts';
 import { prisma } from '../lib/prisma.ts';
+import { ensurePublicImageUrls } from '../lib/image-cache.ts';
 import { VisionFeatureSummary } from '../lib/types.ts';
 
 const ANALYZE_MODEL_PRIMARY = process.env.ANALYZE_MODEL_PRIMARY ?? 'gpt-5-mini';
@@ -204,6 +205,14 @@ export async function runVisionAnalysis(
   input: AnalyzeImagesInput,
   options: AnalyzeImagesOptions = {},
 ): Promise<AnalyzeImagesResponse> {
+  const normalizedImages = await ensurePublicImageUrls(
+    Array.from(new Set(input.images)),
+  );
+  const normalizedInput: AnalyzeImagesInput = {
+    ...input,
+    images: normalizedImages,
+  };
+
   const lead = await prisma.lead.findUnique({
     where: { id: input.lead_id },
   });
@@ -223,7 +232,7 @@ export async function runVisionAnalysis(
 
   let result: VisionFeatureSummary;
   try {
-    result = await callVisionModel(ANALYZE_MODEL_PRIMARY, input);
+    result = await callVisionModel(ANALYZE_MODEL_PRIMARY, normalizedInput);
   } catch (err) {
     logVisionUrlIssue(err, input.images);
     // Cache the attachment hash on model failure to prevent repeated retries on same inputs.
@@ -254,7 +263,10 @@ export async function runVisionAnalysis(
 
   if (needsEscalation) {
     try {
-      const escalated = await callVisionModel(ANALYZE_MODEL_ESCALATION, input);
+      const escalated = await callVisionModel(
+        ANALYZE_MODEL_ESCALATION,
+        normalizedInput,
+      );
       // Prefer escalated result if it increases confidence.
       if (escalated.confidence >= result.confidence) {
         result = escalated;
@@ -289,7 +301,7 @@ export async function runVisionAnalysis(
       actor: 'agent',
       action: 'analyze_images',
       payload: {
-        image_count: input.images.length,
+        image_count: normalizedInput.images.length,
         escalated_model: escalatedModel,
         confidence: result.confidence,
         trigger: options.trigger ?? 'agent',
