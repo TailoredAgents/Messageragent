@@ -7,6 +7,8 @@ import { getJunkQuoteAgent } from '../agent/index.ts';
 import { getRunner } from '../lib/agent-runner.ts';
 import { prisma } from '../lib/prisma.ts';
 import { validateTwilioSignature } from '../adapters/twilio.ts';
+import { recordLeadAttachments } from '../lib/attachments.ts';
+import { maybeRunVisionAutomation } from '../lib/vision-automation.ts';
 
 type LeadWithRelations = Prisma.LeadGetPayload<{
   include: { quotes: { orderBy: { createdAt: 'desc' } } };
@@ -102,17 +104,32 @@ async function processSmsEvent(
   reply: FastifyReply,
 ) {
   const from = body.From;
-  const messageText = (body.Body ?? '').toString().trim();
+  const rawBody = (body.Body ?? '').toString();
+  const messageText = rawBody.trim();
+  const attachments = gatherMedia(body);
+  const textPayload =
+    messageText.length > 0
+      ? messageText
+      : attachments.length > 0
+        ? '[photos uploaded]'
+        : null;
 
-  if (!from || !messageText) {
+  if (!from || !textPayload) {
     reply.type('text/xml').send('<Response></Response>');
     return;
   }
 
-  const attachments = gatherMedia(body);
   const { lead, isNew } = await ensureSmsLead(from);
 
-  const lowerText = messageText.toLowerCase();
+  const attachmentHistory = await recordLeadAttachments(
+    lead.id,
+    attachments,
+    'sms',
+  );
+  const attachmentsForContext =
+    attachmentHistory.length > 0 ? attachmentHistory : attachments;
+
+  const lowerText = textPayload.toLowerCase();
   const curbsideDetected = CURBSIDE_KEYWORDS.some((keyword) =>
     lowerText.includes(keyword),
   );
@@ -136,8 +153,9 @@ async function processSmsEvent(
       actor: 'customer',
       action: 'customer_sms',
       payload: {
-        text: messageText,
+        text: textPayload,
         attachments,
+        attachment_history: attachmentHistory,
         is_new_lead: isNew,
       } as Prisma.JsonObject,
     },
@@ -148,15 +166,23 @@ async function processSmsEvent(
 
   const inputText = buildAgentInput({
     lead,
-    text: messageText,
-    attachments,
+    text: textPayload,
+    attachments: attachmentsForContext,
+  });
+
+  void maybeRunVisionAutomation({
+    lead,
+    attachments: attachmentsForContext,
+    channel: 'sms',
+  }).catch((error) => {
+    request.log.error({ err: error, leadId: lead.id }, 'Auto vision analysis failed');
   });
 
   await runner.run(agent, inputText, {
     context: {
       leadId: lead.id,
       smsFrom: from,
-      attachments,
+      attachments: attachmentsForContext,
     },
   });
 

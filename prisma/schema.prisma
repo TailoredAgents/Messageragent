@@ -66,6 +66,7 @@ model Lead {
   quotes                   Quote[]
   jobs                     Job[]
   audits                   Audit[]
+  attachments              LeadAttachment[]
 
   @@index([channel])
   @@index([stage])
@@ -143,6 +144,19 @@ model Audit {
 
   @@index([leadId])
   @@index([createdAt])
+}
+
+model LeadAttachment {
+  id        String   @id @default(uuid())
+  leadId    String   @map("lead_id")
+  url       String
+  source    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead Lead @relation(fields: [leadId], references: [id])
+
+  @@unique([leadId, url])
+  @@index([leadId, createdAt])
 }
 
 model Config {

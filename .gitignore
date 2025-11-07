@@ -151,3 +151,6 @@ dump.rdb
 node_modules/
 !src/lib/
 !src/lib/**
+
+# Local dev artifacts
+tmp/

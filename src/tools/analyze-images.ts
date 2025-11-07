@@ -2,6 +2,7 @@ import { tool } from '@openai/agents';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
+import { hashJson } from '../lib/hash.ts';
 import { getOpenAIClient } from '../lib/openai.ts';
 import { prisma } from '../lib/prisma.ts';
 import { VisionFeatureSummary } from '../lib/types.ts';
@@ -23,9 +24,9 @@ const analyzeImagesParameters = z
     notes: data.notes ?? undefined,
   }));
 
-type AnalyzeImagesInput = z.infer<typeof analyzeImagesParameters>;
+export type AnalyzeImagesInput = z.infer<typeof analyzeImagesParameters>;
 
-type AnalyzeImagesResponse = VisionFeatureSummary & {
+export type AnalyzeImagesResponse = VisionFeatureSummary & {
   escalated_model?: string;
 };
 
@@ -76,41 +77,99 @@ async function callVisionModel(
 ): Promise<VisionFeatureSummary> {
   const client = getOpenAIClient();
 
-  const response = await client.responses.create({
-    model,
-    input: [
-      {
-        role: 'system',
-        content: [
-          {
-            type: 'input_text',
-            text:
-              'You are a junk removal estimator. Describe the load characteristics precisely. ' +
-              'Return cubic yards, hazards, stairs, long carry distance, heavy or regulated items, and curbside status.',
-          },
-        ],
+  async function createWithOldParam() {
+    return client.responses.create({
+      model,
+      input: [
+        {
+          role: 'system',
+          content: [
+            {
+              type: 'input_text',
+              text:
+                'You are a junk removal estimator. Describe the load characteristics precisely. ' +
+                'Return cubic yards, hazards, stairs, long carry distance, heavy or regulated items, and curbside status.',
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: input.notes
+                ? `Customer shared context: ${input.notes}`
+                : 'Analyze these photos for junk removal quoting.',
+            },
+            ...input.images.map((url) => ({
+              type: 'input_image' as const,
+              image_url: url,
+            })),
+          ],
+        },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: featureSchema,
       },
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'input_text',
-            text: input.notes
-              ? `Customer shared context: ${input.notes}`
-              : 'Analyze these photos for junk removal quoting.',
-          },
-          ...input.images.map((url) => ({
-            type: 'input_image' as const,
-            image_url: url,
-          })),
-        ],
+    });
+  }
+
+  async function createWithNewParam() {
+    // Adapt to Responses API where JSON schema lives under text.format
+    return client.responses.create({
+      model,
+      input: [
+        {
+          role: 'system',
+          content: [
+            {
+              type: 'input_text',
+              text:
+                'You are a junk removal estimator. Describe the load characteristics precisely. ' +
+                'Return cubic yards, hazards, stairs, long carry distance, heavy or regulated items, and curbside status.',
+            },
+          ],
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'input_text',
+              text: input.notes
+                ? `Customer shared context: ${input.notes}`
+                : 'Analyze these photos for junk removal quoting.',
+            },
+            ...input.images.map((url) => ({
+              type: 'input_image' as const,
+              image_url: url,
+            })),
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: featureSchema.name,
+          schema: featureSchema.schema,
+          strict: true,
+        },
       },
-    ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: featureSchema,
-    },
-  });
+    });
+  }
+
+  let response;
+  try {
+    response = await createWithOldParam();
+  } catch (err) {
+    const e = err as any;
+    const code = e?.code || e?.error?.code;
+    if (code === 'unsupported_parameter') {
+      response = await createWithNewParam();
+    } else {
+      throw err;
+    }
+  }
 
   const jsonContent = response.output?.[0]?.content?.find(
     (item) => item.type === 'output_json',
@@ -135,8 +194,14 @@ async function callVisionModel(
   };
 }
 
-async function analyzeImages(
+type AnalyzeImagesOptions = {
+  trigger?: 'agent' | 'automation';
+  attachmentHash?: string;
+};
+
+export async function runVisionAnalysis(
   input: AnalyzeImagesInput,
+  options: AnalyzeImagesOptions = {},
 ): Promise<AnalyzeImagesResponse> {
   const lead = await prisma.lead.findUnique({
     where: { id: input.lead_id },
@@ -146,9 +211,38 @@ async function analyzeImages(
   }
 
   const previousMetadata =
-    (lead.stateMetadata as Prisma.JsonObject | null) ?? {};
+    ((lead.stateMetadata as Prisma.JsonObject | null) ?? {}) as Record<
+      string,
+      unknown
+    >;
+  const previousAttachmentHash =
+    typeof previousMetadata.last_analyzed_hash === 'string'
+      ? (previousMetadata.last_analyzed_hash as string)
+      : undefined;
 
-  let result = await callVisionModel(ANALYZE_MODEL_PRIMARY, input);
+  let result: VisionFeatureSummary;
+  try {
+    result = await callVisionModel(ANALYZE_MODEL_PRIMARY, input);
+  } catch (err) {
+    // Cache the attachment hash on model failure to prevent repeated retries on same inputs.
+    if (options.attachmentHash) {
+      const prev = ((previousMetadata as Prisma.JsonObject | null) ?? {}) as Record<
+        string,
+        unknown
+      >;
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: {
+          stateMetadata: {
+            ...prev,
+            last_analyzed_hash: options.attachmentHash,
+            last_analyzed_trigger: options.trigger ?? 'agent',
+          },
+        },
+      });
+    }
+    throw err;
+  }
   let escalatedModel: string | undefined;
 
   const needsEscalation =
@@ -169,6 +263,8 @@ async function analyzeImages(
     }
   }
 
+  const featuresHash = hashJson(result);
+
   await prisma.lead.update({
     where: { id: lead.id },
     data: {
@@ -177,6 +273,9 @@ async function analyzeImages(
         ...previousMetadata,
         last_analyzed_at: new Date().toISOString(),
         last_features: result,
+        last_features_hash: featuresHash,
+        last_analyzed_hash: options.attachmentHash ?? previousAttachmentHash,
+        last_analyzed_trigger: options.trigger ?? 'agent',
       },
     },
   });
@@ -190,6 +289,7 @@ async function analyzeImages(
         image_count: input.images.length,
         escalated_model: escalatedModel,
         confidence: result.confidence,
+        trigger: options.trigger ?? 'agent',
       } as Prisma.JsonObject,
     },
   });
@@ -240,11 +340,12 @@ export function buildAnalyzeImagesTool() {
       'Analyze junk removal photos and return structured load features for pricing decisions.',
     parameters: analyzeImagesJsonSchema,
     execute: async (args) =>
-      analyzeImages(
+      runVisionAnalysis(
         analyzeImagesParameters.parse({
           notes: null,
           ...args,
         }),
+        { trigger: 'agent' },
       ),
   });
 }

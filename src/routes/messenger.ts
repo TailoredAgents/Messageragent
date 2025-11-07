@@ -6,6 +6,8 @@ import { Prisma } from '@prisma/client';
 import { getJunkQuoteAgent } from '../agent/index.ts';
 import { getRunner } from '../lib/agent-runner.ts';
 import { prisma } from '../lib/prisma.ts';
+import { recordLeadAttachments } from '../lib/attachments.ts';
+import { maybeRunVisionAutomation } from '../lib/vision-automation.ts';
 
 type LeadWithRelations = Prisma.LeadGetPayload<{
   include: { quotes: { orderBy: { createdAt: 'desc' } } };
@@ -134,6 +136,14 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
 
   const { lead, isNew } = await ensureLead(psid);
 
+  const attachmentHistory = await recordLeadAttachments(
+    lead.id,
+    attachments,
+    'messenger',
+  );
+  const attachmentsForContext =
+    attachmentHistory.length > 0 ? attachmentHistory : attachments;
+
   const lowerText = textPayload.toLowerCase();
   const curbsideDetected = CURBSIDE_KEYWORDS.some((keyword) =>
     lowerText.includes(keyword),
@@ -159,6 +169,7 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
       payload: {
         text: textPayload,
         attachments,
+        attachment_history: attachmentHistory,
         is_new_lead: isNew,
       } as Prisma.JsonObject,
     },
@@ -170,7 +181,7 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
   const inputText = buildAgentInput({
     lead,
     text: textPayload,
-    attachments,
+    attachments: attachmentsForContext,
   });
 
   const start = Date.now();
@@ -181,16 +192,28 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
       isNewLead: isNew,
       message: textPayload,
       attachmentCount: attachments.length,
+      attachmentHistoryCount: attachmentsForContext.length,
     },
     'Messenger event received; starting agent run.',
   );
+
+  void maybeRunVisionAutomation({
+    lead,
+    attachments: attachmentsForContext,
+    channel: 'messenger',
+  }).catch((error) => {
+    log.error(
+      { err: error, leadId: lead.id },
+      'Auto vision analysis failed',
+    );
+  });
 
   try {
     await runner.run(agent, inputText, {
       context: {
         leadId: lead.id,
         messengerPsid: psid,
-        attachments,
+        attachments: attachmentsForContext,
       },
     });
     log.info(
@@ -198,7 +221,7 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
         leadId: lead.id,
         psid,
         durationMs: Date.now() - start,
-        attachmentsAnalyzed: attachments.length,
+        attachmentsAnalyzed: attachmentsForContext.length,
       },
       'Agent run completed.',
     );

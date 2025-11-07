@@ -8,8 +8,9 @@ import { prisma } from '../lib/prisma.ts';
 import { computeQuote } from '../lib/price-engine.ts';
 import { loadTenantConfig } from '../lib/config.ts';
 import { QuoteComputation, VisionFeatureSummary } from '../lib/types.ts';
+import { hashJson } from '../lib/hash.ts';
 
-const featuresSchema = z.object({
+export const visionFeaturesSchema = z.object({
   volume_class: z.string(),
   cubic_yards_est: z.number().min(0),
   bedload: z.boolean(),
@@ -25,7 +26,7 @@ const featuresSchema = z.object({
 const priceFromRulesParameters = z
   .object({
     lead_id: z.string().uuid('lead_id must be a valid UUID'),
-    features: featuresSchema,
+    features: visionFeaturesSchema,
     notes: z.array(z.string()).nullish(),
   })
   .transform((data) => ({
@@ -33,13 +34,18 @@ const priceFromRulesParameters = z
     notes: data.notes ?? undefined,
   }));
 
-type PriceFromRulesInput = z.infer<typeof priceFromRulesParameters>;
+export type PriceFromRulesInput = z.infer<typeof priceFromRulesParameters>;
 
 type PriceFromRulesResult = QuoteComputation & {
   quote_id: string;
   needs_approval: boolean;
   approval_token?: string;
   disclaimer: string | null;
+};
+
+type PriceFromRulesOptions = {
+  trigger?: 'agent' | 'automation';
+  featuresHash?: string;
 };
 
 async function resolveConfig() {
@@ -59,8 +65,9 @@ async function resolveConfig() {
   };
 }
 
-async function priceFromRules(
+export async function runPriceFromRules(
   input: PriceFromRulesInput,
+  options: PriceFromRulesOptions = {},
 ): Promise<PriceFromRulesResult> {
   const lead = await prisma.lead.findUnique({
     where: { id: input.lead_id },
@@ -94,6 +101,8 @@ async function priceFromRules(
     ...(input.notes ?? []),
   ];
 
+  const featuresHash = hashJson(input.features);
+
   const quote = await prisma.quote.create({
     data: {
       leadId: lead.id,
@@ -111,15 +120,27 @@ async function priceFromRules(
     },
   });
 
+  const metadata =
+    ((lead.stateMetadata as Prisma.JsonObject | null) ?? {}) as Record<
+      string,
+      unknown
+    >;
+  const previousPricedHash =
+    typeof metadata.last_priced_features_hash === 'string'
+      ? (metadata.last_priced_features_hash as string)
+      : undefined;
+
   await prisma.lead.update({
     where: { id: lead.id },
     data: {
       stage: needsApproval ? 'awaiting_owner' : 'quoting',
       stateMetadata: {
-        ...((lead.stateMetadata as Prisma.JsonObject) ?? {}),
+        ...metadata,
         last_quote_id: quote.id,
         last_quote_at: new Date().toISOString(),
         quote_flags: quoteComputation.flags,
+        last_priced_features_hash:
+          options.featuresHash ?? featuresHash ?? previousPricedHash,
       },
     },
   });
@@ -146,6 +167,7 @@ async function priceFromRules(
         quote_id: quote.id,
         needs_approval: needsApproval,
         totals: quoteComputation.total,
+        trigger: options.trigger ?? 'agent',
       } as Prisma.JsonObject,
     },
   });
@@ -260,11 +282,12 @@ export function buildPriceFromRulesTool() {
       'Apply pricebook rules to structured features and create a persisted quote.',
     parameters: priceFromRulesJsonSchema,
     execute: async (args) =>
-      priceFromRules(
+      runPriceFromRules(
         priceFromRulesParameters.parse({
           notes: null,
           ...args,
         }),
+        { trigger: 'agent' },
       ),
   });
 }

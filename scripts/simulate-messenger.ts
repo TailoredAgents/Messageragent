@@ -5,6 +5,8 @@ import { getJunkQuoteAgent } from '../src/agent/index.ts';
 import { getRunner } from '../src/lib/agent-runner.ts';
 import { prisma } from '../src/lib/prisma.ts';
 import { buildAgentInput } from '../src/routes/messenger.ts';
+import { recordLeadAttachments } from '../src/lib/attachments.ts';
+import { maybeRunVisionAutomation } from '../src/lib/vision-automation.ts';
 
 async function resolveLead(leadId?: string) {
   if (leadId) {
@@ -32,14 +34,24 @@ async function resolveLead(leadId?: string) {
 
 async function main() {
   const args = process.argv.slice(2);
-  const [leadIdArg, ...messageParts] = args;
+  const [leadIdArg, ...rest] = args;
+  const messageParts: string[] = [];
+  const imageUrls: string[] = [];
+
+  for (const part of rest) {
+    if (/^https:\/\//i.test(part)) {
+      imageUrls.push(part);
+    } else {
+      messageParts.push(part);
+    }
+  }
   const lead = await resolveLead(leadIdArg);
   const text =
     messageParts.length > 0
       ? messageParts.join(' ')
       : 'Hi Austin, can I get a quote for these items?';
 
-  const attachments: string[] = [];
+  let attachments: string[] = imageUrls;
 
   const runner = getRunner();
   const agent = getJunkQuoteAgent();
@@ -60,6 +72,12 @@ async function main() {
   console.info('Lead:', lead.id, '-', lead.name);
   console.info('Message:', text);
   console.info('Attachments:', attachments.length);
+
+  if (attachments.length > 0) {
+    // Persist unique attachments and trigger auto-analysis like the webhook does.
+    attachments = await recordLeadAttachments(lead.id, attachments, 'messenger');
+    await maybeRunVisionAutomation({ lead, attachments, channel: 'messenger' });
+  }
 
   const start = Date.now();
   const result = await runner.run(agent, input, { context });
