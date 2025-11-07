@@ -97,16 +97,24 @@ async function sendMessage(
     throw new Error('Attachments are not supported over SMS.');
   }
 
+  const outboundText =
+    channel === 'messenger'
+      ? maybeAddSchedulingFallback(
+          input.text,
+          lead.stateMetadata as Prisma.JsonValue | null,
+        )
+      : input.text;
+
   if (channel === 'messenger') {
     await sendMessengerMessage({
       to: recipient,
-      text: input.text,
+      text: outboundText,
       quickReplies: input.quick_replies,
       attachments: input.attachments,
       jitter: isMessengerJitterEnabled(),
     });
   } else {
-    await sendSmsMessage(recipient, input.text);
+    await sendSmsMessage(recipient, outboundText);
   }
 
   await prisma.lead.update({
@@ -175,6 +183,68 @@ function isMessengerJitterEnabled(): boolean {
     .toLowerCase()
     .trim();
   return !['0', 'false', 'no', 'off'].includes(jitterPref);
+}
+
+function maybeAddSchedulingFallback(
+  text: string,
+  stateMetadata: Prisma.JsonValue | null,
+): string {
+  const metadata = (stateMetadata as Record<string, unknown> | null) ?? null;
+  if (!metadata) {
+    return text;
+  }
+  const proposedSlots = Array.isArray(metadata.proposed_slots)
+    ? metadata.proposed_slots
+    : [];
+  if (proposedSlots.length === 0) {
+    return text;
+  }
+  if (!mentionsSlotOptions(text)) {
+    return text;
+  }
+  if (alreadyOffersFallback(text)) {
+    return text;
+  }
+  const proposedAt = typeof metadata.proposed_at === 'string' ? metadata.proposed_at : null;
+  if (!proposedAt) {
+    return text;
+  }
+  const proposedTime = new Date(proposedAt).getTime();
+  if (Number.isNaN(proposedTime)) {
+    return text;
+  }
+  const sixHoursMs = 6 * 60 * 60 * 1000;
+  if (Date.now() - proposedTime > sixHoursMs) {
+    return text;
+  }
+  const trimmed = text.trimEnd();
+  const fallback =
+    'If those windows do not fit, just let me know what day works best for you.';
+  return `${trimmed}\n\n${fallback}`;
+}
+
+function mentionsSlotOptions(text: string): boolean {
+  const lines = text.split('\n');
+  return lines.some((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return false;
+    }
+    if (/^[-•]/.test(trimmed) && /\b(am|pm)\b/i.test(trimmed)) {
+      return true;
+    }
+    return /\bwindow\b/i.test(trimmed);
+  });
+}
+
+function alreadyOffersFallback(text: string): boolean {
+  const normalized = text.toLowerCase();
+  return (
+    normalized.includes('what day works best') ||
+    normalized.includes('different day') ||
+    normalized.includes('another day') ||
+    normalized.includes('other day')
+  );
 }
 
 function buildSendMessageJsonSchema() {
