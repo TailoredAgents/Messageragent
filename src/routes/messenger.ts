@@ -43,6 +43,7 @@ type MessengerWebhookPayload = {
 };
 
 const CURBSIDE_KEYWORDS = ['curbside', 'driveway', 'garage', 'staged'];
+const PHOTO_REFERENCE_REGEX = /\b(photo|photos|pic|pics|picture|pictures|image|images)\b/i;
 
 type Logger = Pick<FastifyRequest['log'], 'info' | 'warn' | 'error' | 'child'>;
 
@@ -141,8 +142,14 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
     attachments,
     'messenger',
   );
-  const attachmentsForContext =
-    attachmentHistory.length > 0 ? attachmentHistory : attachments;
+  const referencesPhotos = PHOTO_REFERENCE_REGEX.test(textPayload.toLowerCase());
+  let attachmentsForContext: string[] = [];
+  if (attachments.length > 0) {
+    attachmentsForContext =
+      attachmentHistory.length > 0 ? attachmentHistory : attachments;
+  } else if (referencesPhotos && attachmentHistory.length > 0) {
+    attachmentsForContext = attachmentHistory;
+  }
 
   const lowerText = textPayload.toLowerCase();
   const curbsideDetected = CURBSIDE_KEYWORDS.some((keyword) =>
