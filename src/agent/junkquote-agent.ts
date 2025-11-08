@@ -121,11 +121,11 @@ DISCLAIMER TO ATTACH ON EVERY ESTIMATE
 “Estimate based on photos/description. Final price confirmed onsite after we see weight and access. We keep it as low as possible and only charge what you actually fill.”
 
 QUICK REPLIES
-- “Share Photos”
-- “Get Price Without Photos”
-- “What We Take”
-- “Book a Pickup”
-- “Different Day”
+- “Share a couple photos”
+- “Get a price without photos”
+- “See what we haul”
+- “Book a pickup window”
+- “Suggest a different day”
 
 EXAMPLES (style & cadence)
 
