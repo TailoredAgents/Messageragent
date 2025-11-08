@@ -23,6 +23,43 @@ export type MessengerSendOptions = {
   jitter?: boolean;
 };
 
+function typingIndicatorsEnabled(): boolean {
+  const pref = String(process.env.MESSENGER_TYPING_ENABLED ?? 'true')
+    .toLowerCase()
+    .trim();
+  return !['0', 'false', 'no', 'off'].includes(pref);
+}
+
+async function sendSenderAction({
+  action,
+  recipientId,
+  accessToken,
+  pageId,
+}: {
+  action: 'typing_on' | 'typing_off';
+  recipientId: string;
+  accessToken: string;
+  pageId: string;
+}): Promise<void> {
+  const endpoint = `${GRAPH_BASE_URL}/${pageId}/messages?access_token=${encodeURIComponent(accessToken)}`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      recipient: { id: recipientId },
+      sender_action: action,
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    console.warn(
+      `[Messenger] Failed to send sender_action=${action}: ${response.status} ${response.statusText} ${detail}`,
+    );
+  }
+}
+
 export async function sendMessengerMessage(
   options: MessengerSendOptions,
 ): Promise<void> {
@@ -35,16 +72,6 @@ export async function sendMessengerMessage(
     return;
   }
 
-  // Optional human-like delay
-  const wantJitter = options.jitter ?? true;
-  if (wantJitter) {
-    const minS = Number.parseInt(process.env.MESSENGER_JITTER_MIN_S ?? '15', 10);
-    const maxS = Number.parseInt(process.env.MESSENGER_JITTER_MAX_S ?? '35', 10);
-    if (!Number.isNaN(minS) && !Number.isNaN(maxS) && maxS >= minS && minS >= 0) {
-      const ms = Math.floor((minS + Math.random() * (maxS - minS)) * 1000);
-      await new Promise((resolve) => setTimeout(resolve, ms));
-    }
-  }
   const accessToken = process.env.FB_PAGE_ACCESS_TOKEN;
   const pageId = process.env.FB_PAGE_ID;
 
@@ -60,6 +87,32 @@ export async function sendMessengerMessage(
       pageId,
       tokenHash: getTokenFingerprint(accessToken),
     });
+  }
+
+  const wantJitter = options.jitter ?? true;
+  const typingEnabled = typingIndicatorsEnabled();
+
+  if (typingEnabled && wantJitter) {
+    try {
+      await sendSenderAction({
+        action: 'typing_on',
+        recipientId: options.to,
+        accessToken,
+        pageId,
+      });
+    } catch (error) {
+      console.warn('[Messenger] Failed to send typing indicator', error);
+    }
+  }
+
+  // Optional human-like delay
+  if (wantJitter) {
+    const minS = Number.parseInt(process.env.MESSENGER_JITTER_MIN_S ?? '5', 10);
+    const maxS = Number.parseInt(process.env.MESSENGER_JITTER_MAX_S ?? '20', 10);
+    if (!Number.isNaN(minS) && !Number.isNaN(maxS) && maxS >= minS && minS >= 0) {
+      const ms = Math.floor((minS + Math.random() * (maxS - minS)) * 1000);
+      await new Promise((resolve) => setTimeout(resolve, ms));
+    }
   }
 
   const endpoint = `${GRAPH_BASE_URL}/${pageId}/messages?access_token=${encodeURIComponent(accessToken)}`;
@@ -108,5 +161,16 @@ export async function sendMessengerMessage(
     throw new Error(
       `Failed to send Messenger message: ${response.status} ${response.statusText} ${detail}`,
     );
+  }
+
+  if (typingEnabled && wantJitter) {
+    void sendSenderAction({
+      action: 'typing_off',
+      recipientId: options.to,
+      accessToken,
+      pageId,
+    }).catch((error) => {
+      console.warn('[Messenger] Failed to send typing_off indicator', error);
+    });
   }
 }
