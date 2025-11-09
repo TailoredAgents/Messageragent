@@ -26,6 +26,8 @@ type ProposeSlotsResult = {
 
 const BUSINESS_START_HOUR = 8; // 8 AM local
 const BUSINESS_END_HOUR = 18; // 6 PM local
+const SLOT_STEP_MIN = 15;
+const MAX_SUGGESTIONS = 4;
 
 function estimateDurationMinutesFromLead(lead: { stateMetadata: unknown }): number {
   try {
@@ -60,39 +62,78 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
   const durationMin = estimateDurationMinutesFromLead(lead);
 
   const suggestions: ProposedSlot[] = [];
-  const maxSuggestions = 4;
+  const preferredMinutes = preferredDate.getHours() * 60 + preferredDate.getMinutes();
 
-  for (let dayOffset = 0; dayOffset < 7 && suggestions.length < maxSuggestions; dayOffset++) {
+  for (let dayOffset = 0; dayOffset < 7 && suggestions.length < MAX_SUGGESTIONS; dayOffset++) {
     const base = addDays(new Date(Date.UTC(y, m - 1, d, 0, 0, 0)), dayOffset);
     const { y: yy, m: mm, d: dd } = getLocalYMD(base, tz);
-    for (let hour = BUSINESS_START_HOUR; hour <= BUSINESS_END_HOUR; hour++) {
-      for (let minute = 0; minute < 60; minute += 30) {
-        const start = makeZonedDate(tz, yy, mm, dd, hour, minute);
-        const end = addMinutes(start, durationMin);
-        // Skip past
-        if (start.getTime() < Date.now()) continue;
-        // Ensure end still within business day in local TZ
-        const endLocalHour = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).format(end));
-        if (endLocalHour > BUSINESS_END_HOUR) continue;
 
-        if (calendarFeatureEnabled() && cfg) {
-          try {
-            const free = await isWindowFree(start.toISOString(), end.toISOString(), cfg.id, tz);
-            if (!free) continue;
-          } catch (e) {
-            console.warn('[Calendar] freebusy failed; proceeding with candidate', e);
-          }
+    const candidates: ProposedSlot[] = [];
+
+    for (
+      let totalMinutes = BUSINESS_START_HOUR * 60;
+      totalMinutes <= BUSINESS_END_HOUR * 60;
+      totalMinutes += SLOT_STEP_MIN
+    ) {
+      const hour = Math.floor(totalMinutes / 60);
+      const minute = totalMinutes % 60;
+      const start = makeZonedDate(tz, yy, mm, dd, hour, minute);
+      if (start.getTime() < Date.now()) continue;
+      const end = addMinutes(start, durationMin);
+      const endMinutesLocal = Number(
+        new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).format(end),
+      ) * 60;
+      if (endMinutesLocal > BUSINESS_END_HOUR * 60) continue;
+
+      if (calendarFeatureEnabled() && cfg) {
+        try {
+          const free = await isWindowFree(start.toISOString(), end.toISOString(), cfg.id, tz);
+          if (!free) continue;
+        } catch (e) {
+          console.warn('[Calendar] freebusy failed; proceeding with candidate', e);
         }
-
-        suggestions.push({
-          id: `${lead.id}-${start.toISOString()}`,
-          label: formatLocalRange(tz, start, end),
-          window_start: start.toISOString(),
-          window_end: end.toISOString(),
-        });
-        if (suggestions.length >= maxSuggestions) break;
       }
-      if (suggestions.length >= maxSuggestions) break;
+
+      candidates.push({
+        id: `${lead.id}-${start.toISOString()}`,
+        label: formatLocalRange(tz, start, end),
+        window_start: start.toISOString(),
+        window_end: end.toISOString(),
+      });
+    }
+
+    // Prioritize slots closest to preferred time, but also spread morning/midday/afternoon
+    const segments = [
+      candidates.filter((slot) => new Date(slot.window_start).getHours() < 11),
+      candidates.filter((slot) => {
+        const h = new Date(slot.window_start).getHours();
+        return h >= 11 && h < 15;
+      }),
+      candidates.filter((slot) => new Date(slot.window_start).getHours() >= 15),
+    ];
+
+    for (const segment of segments) {
+      segment.sort((a, b) =>
+        Math.abs(new Date(a.window_start).getHours() * 60 + new Date(a.window_start).getMinutes() - preferredMinutes) -
+        Math.abs(new Date(b.window_start).getHours() * 60 + new Date(b.window_start).getMinutes() - preferredMinutes),
+      );
+    }
+
+    const balanced: ProposedSlot[] = [];
+    while (balanced.length < MAX_SUGGESTIONS && segments.some((seg) => seg.length > 0)) {
+      for (const segment of segments) {
+        if (segment.length === 0) continue;
+        const slot = segment.shift();
+        if (slot) {
+          balanced.push(slot);
+          if (balanced.length >= MAX_SUGGESTIONS) break;
+        }
+      }
+    }
+
+    for (const slot of balanced) {
+      suggestions.push(slot);
+      if (suggestions.length >= MAX_SUGGESTIONS) break;
     }
   }
 
