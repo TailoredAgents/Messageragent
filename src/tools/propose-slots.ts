@@ -30,6 +30,7 @@ type ProposeSlotsResult = {
 const BUSINESS_START_HOUR = 8; // 8 AM local
 const BUSINESS_END_HOUR = 18; // 6 PM local
 const SLOT_STEP_MIN = 15;
+const MIN_GAP_MIN = 30;
 const MAX_SUGGESTIONS = 4;
 
 function estimateDurationMinutesFromLead(lead: { stateMetadata: unknown }): number {
@@ -58,9 +59,9 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
     throw new Error('Lead not found for proposing slots.');
   }
 
-  let preferredDate = (input.preferred_day && new Date(input.preferred_day)) || new Date();
   const cfg = getCalendarConfig();
   const tz = cfg?.timeZone ?? 'America/New_York';
+  let preferredMoment = (input.preferred_day && new Date(input.preferred_day)) || new Date();
   if (input.preferred_time_text) {
     const resolved = await resolvePreferredDateTime(
       input.preferred_time_text,
@@ -68,15 +69,16 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
       new Date(),
     );
     if (resolved) {
-      preferredDate = resolved;
+      preferredMoment = resolved;
     }
   }
 
-  const { y, m, d } = getLocalYMD(preferredDate, tz);
+  const { y, m, d } = getLocalYMD(preferredMoment, tz);
   const durationMin = estimateDurationMinutesFromLead(lead);
 
   const suggestions: ProposedSlot[] = [];
-  const preferredMinutes = preferredDate.getHours() * 60 + preferredDate.getMinutes();
+  const preferredMinutes = preferredMoment.getHours() * 60 + preferredMoment.getMinutes();
+  let lastAcceptedEnd: Date | null = null;
 
   for (let dayOffset = 0; dayOffset < 7 && suggestions.length < MAX_SUGGESTIONS; dayOffset++) {
     const base = addDays(new Date(Date.UTC(y, m - 1, d, 0, 0, 0)), dayOffset);
@@ -138,10 +140,18 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
       for (const segment of segments) {
         if (segment.length === 0) continue;
         const slot = segment.shift();
-        if (slot) {
-          balanced.push(slot);
-          if (balanced.length >= MAX_SUGGESTIONS) break;
+        if (!slot) continue;
+
+        if (config.calendarFeatureEnabled && cfg) {
+          const start = new Date(slot.window_start);
+          if (lastAcceptedEnd && start.getTime() - lastAcceptedEnd.getTime() < MIN_GAP_MIN * 60 * 1000) {
+            continue;
+          }
+          lastAcceptedEnd = new Date(slot.window_end);
         }
+
+        balanced.push(slot);
+        if (balanced.length >= MAX_SUGGESTIONS) break;
       }
     }
 
