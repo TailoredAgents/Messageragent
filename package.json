@@ -27,6 +27,8 @@
     "@fastify/view": "^10.0.2",
     "@openai/agents": "^0.2.1",
     "@prisma/client": "^6.18.0",
+    "chrono-node": "^2.9.0",
+    "chrono-node": "^2.7.4",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "dotenv": "^16.4.5",
