@@ -1,4 +1,4 @@
-import { zonedTimeToUtc, formatInTimeZone } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 
 export function makeZonedDate(
   timeZone: string,
@@ -9,8 +9,13 @@ export function makeZonedDate(
   min = 0,
 ): Date {
   // months are 1-based in our inputs; JS Date expects 0-based
-  const iso = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:00`;
-  return zonedTimeToUtc(iso, timeZone);
+  const iso = `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}:00 ${timeZone}`;
+  // date-fns-tz zonedTimeToUtc is unavailable in this version, so rely on Date parsing.
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.valueOf())) {
+    throw new Error(`Failed to parse date for zone ${timeZone}: ${iso}`);
+  }
+  return parsed;
 }
 
 export function formatLocalRange(
