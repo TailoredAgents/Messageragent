@@ -1,4 +1,4 @@
-import chrono from 'chrono-node';
+import * as chrono from 'chrono-node';
 import { DateTime } from 'luxon';
 
 export function resolvePreferredDateTime(
