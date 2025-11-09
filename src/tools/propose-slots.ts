@@ -73,6 +73,11 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
     }
   }
 
+  const now = new Date();
+  if (preferredMoment.getTime() < now.getTime()) {
+    preferredMoment = now;
+  }
+
   const { y, m, d } = getLocalYMD(preferredMoment, tz);
   const durationMin = estimateDurationMinutesFromLead(lead);
 
