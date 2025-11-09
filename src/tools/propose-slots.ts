@@ -4,6 +4,11 @@ import { addDays, setHours, setMinutes, startOfDay } from 'date-fns';
 import { z } from 'zod';
 
 import { prisma } from '../lib/prisma.ts';
+import {
+  calendarFeatureEnabled,
+  getCalendarConfig,
+  isWindowFree,
+} from '../lib/google-calendar.ts';
 import { ProposedSlot } from '../lib/types.ts';
 
 const proposeSlotsParameters = z
@@ -63,7 +68,7 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
 
   const start = startOfDay(baseDate);
 
-  const slots: ProposedSlot[] = SLOT_WINDOWS.map(({ startHour, endHour }) => {
+  let slots: ProposedSlot[] = SLOT_WINDOWS.map(({ startHour, endHour }) => {
     const windowStart = setMinutes(setHours(start, startHour), 0);
     const windowEnd = setMinutes(setHours(start, endHour), 0);
     return {
@@ -73,6 +78,63 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
       window_end: windowEnd.toISOString(),
     };
   });
+
+  // Optional: filter against Google Calendar availability
+  if (calendarFeatureEnabled()) {
+    const cfg = getCalendarConfig();
+    if (cfg) {
+      const available: ProposedSlot[] = [];
+      for (const slot of slots) {
+        try {
+          const free = await isWindowFree(
+            slot.window_start,
+            slot.window_end,
+            cfg.id,
+            cfg.timeZone,
+          );
+          if (free) available.push(slot);
+        } catch (err) {
+          console.warn('[Calendar] freebusy failed; keeping slot unfiltered', err);
+          available.push(slot);
+        }
+      }
+      // If nothing is open today, push to next day with the same windows and do a best-effort check.
+      if (available.length === 0) {
+        const nextBase = startOfDay(addDays(baseDate, 1));
+        const nextCandidates: ProposedSlot[] = SLOT_WINDOWS.map(({ startHour, endHour }) => {
+          const s = setMinutes(setHours(nextBase, startHour), 0);
+          const e = setMinutes(setHours(nextBase, endHour), 0);
+          return {
+            id: `${lead.id}-${startHour}-${endHour}-${nextBase.getTime()}`,
+            label: buildSlotLabel(nextBase, startHour, endHour),
+            window_start: s.toISOString(),
+            window_end: e.toISOString(),
+          };
+        });
+        const nextAvailable: ProposedSlot[] = [];
+        for (const slot of nextCandidates) {
+          try {
+            const free = await isWindowFree(
+              slot.window_start,
+              slot.window_end,
+              cfg.id,
+              cfg.timeZone,
+            );
+            if (free) nextAvailable.push(slot);
+          } catch {
+            nextAvailable.push(slot);
+          }
+        }
+        if (nextAvailable.length > 0) {
+          slots = nextAvailable;
+        } else {
+          slots = nextCandidates; // fall back if API blocked
+        }
+      } else {
+        slots = available;
+      }
+    }
+  }
 
   await prisma.lead.update({
     where: { id: lead.id },
