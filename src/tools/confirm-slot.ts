@@ -126,6 +126,24 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
     },
   });
 
+  // Safety recheck against Google Calendar to avoid double-booking.
+  if (calendarFeatureEnabled()) {
+    const cfg = getCalendarConfig();
+    if (cfg) {
+      const free = await isWindowFree(
+        windowStart.toISOString(),
+        windowEnd.toISOString(),
+        cfg.id,
+        cfg.timeZone,
+      );
+      if (!free) {
+        throw new Error(
+          'That window was just booked. Please pick another time or day.',
+        );
+      }
+    }
+  }
+
   const calendar = await createCalendarHold({
     jobId: job.id,
     leadName: lead.name,
@@ -261,24 +279,6 @@ const confirmSlotJsonSchema = {
   required: ['lead_id', 'slot', 'quote_id', 'notes'],
   $schema: 'http://json-schema.org/draft-07/schema#',
 } as const;
-
-  // Safety recheck against Google Calendar to avoid double-booking.
-  if (calendarFeatureEnabled()) {
-    const cfg = getCalendarConfig();
-    if (cfg) {
-      const free = await isWindowFree(
-        windowStart.toISOString(),
-        windowEnd.toISOString(),
-        cfg.id,
-        cfg.timeZone,
-      );
-      if (!free) {
-        throw new Error(
-          'That window was just booked. Please pick the other window or another day.',
-        );
-      }
-    }
-  }
 
 export function buildConfirmSlotTool() {
   return tool({
