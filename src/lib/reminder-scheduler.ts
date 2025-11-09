@@ -4,6 +4,8 @@ import { sendMessengerMessage } from '../adapters/messenger.js';
 import { generateReminderEmail } from './email-content.js';
 import { sendTransactionalEmail } from './email.js';
 import { prisma } from './prisma.js';
+import { getCalendarConfig } from './google-calendar.js';
+import { DateTime } from 'luxon';
 
 const POLL_INTERVAL_MS = 60_000;
 
@@ -18,15 +20,16 @@ async function dispatchReminder(jobId: string) {
     return;
   }
 
+  const cfg = getCalendarConfig();
+  const tz = cfg?.timeZone ?? 'America/New_York';
+  const startLocal = DateTime.fromJSDate(job.windowStart).setZone(tz);
+  const endLocal = DateTime.fromJSDate(job.windowEnd).setZone(tz);
+  const startStr = startLocal.toFormat('h:mm a');
+  const endStr = endLocal.toFormat('h:mm a');
+
   await sendMessengerMessage({
     to: job.lead.messengerPsid,
-    text: `Hi there! Reminder that we are scheduled for pickup between ${job.windowStart.toLocaleTimeString([], {
-      hour: 'numeric',
-      minute: '2-digit',
-    })} and ${job.windowEnd.toLocaleTimeString([], {
-      hour: 'numeric',
-      minute: '2-digit',
-    })} tomorrow. Reply if anything changes.`,
+    text: `Hi there! Reminder that we are scheduled for pickup between ${startStr} and ${endStr} tomorrow. Reply if anything changes.`,
     jitter: false,
   });
 
@@ -130,4 +133,3 @@ export function stopReminderScheduler(): void {
     timer = null;
   }
 }
-

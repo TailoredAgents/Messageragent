@@ -108,7 +108,16 @@ export async function isWindowFree(
   timeZone: string,
 ): Promise<boolean> {
   const busy = await queryFreeBusy(timeMinIso, timeMaxIso, calendarId, timeZone);
-  return busy.length === 0;
+  if (busy.length === 0) {
+    return true;
+  }
+  const desiredStart = DateTime.fromISO(timeMinIso, { zone: 'utc' });
+  const desiredEnd = DateTime.fromISO(timeMaxIso, { zone: 'utc' });
+  return busy.every((slot) => {
+    const busyStart = DateTime.fromISO(slot.start, { zone: 'utc' });
+    const busyEnd = DateTime.fromISO(slot.end, { zone: 'utc' });
+    return desiredEnd <= busyStart || desiredStart >= busyEnd;
+  });
 }
 
 type CalendarEventInput = {

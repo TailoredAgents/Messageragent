@@ -1,6 +1,7 @@
 import { tool } from '@openai/agents';
 import { Prisma } from '@prisma/client';
 import { subHours } from 'date-fns';
+import { DateTime } from 'luxon';
 import { z } from 'zod';
 
 import { createCalendarHold } from '../lib/calendar.ts';
@@ -131,9 +132,11 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
   if (calendarFeatureEnabled()) {
     const cfg = getCalendarConfig();
     if (cfg) {
+      const startIso = DateTime.fromJSDate(windowStart, { zone: cfg.timeZone }).toUTC().toISO();
+      const endIso = DateTime.fromJSDate(windowEnd, { zone: cfg.timeZone }).toUTC().toISO();
       const free = await isWindowFree(
-        windowStart.toISOString(),
-        windowEnd.toISOString(),
+        startIso ?? windowStart.toISOString(),
+        endIso ?? windowEnd.toISOString(),
         cfg.id,
         cfg.timeZone,
       );
