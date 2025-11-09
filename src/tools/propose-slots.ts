@@ -76,7 +76,14 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
 
   const now = new Date();
   if (preferredMoment.getTime() < now.getTime()) {
-    preferredMoment = now;
+    const diffMs = now.getTime() - preferredMoment.getTime();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    if (diffMs < oneDayMs) {
+      preferredMoment = now;
+    } else {
+      const weeksBehind = Math.floor(diffMs / (7 * oneDayMs)) + 1;
+      preferredMoment = addDays(preferredMoment, weeksBehind * 7);
+    }
   }
 
   const { y, m, d } = getLocalYMD(preferredMoment, tz);
