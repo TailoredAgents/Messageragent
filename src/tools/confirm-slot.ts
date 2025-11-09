@@ -65,6 +65,12 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
     throw new Error('Lead not found for booking.');
   }
 
+  if (!lead.address || lead.address.trim().length === 0) {
+    throw new Error(
+      'Need the service address before locking in a pickup window.',
+    );
+  }
+
   const windowStart = new Date(input.slot.window_start);
   const windowEnd = new Date(input.slot.window_end);
 
