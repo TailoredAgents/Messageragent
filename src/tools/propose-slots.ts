@@ -1,15 +1,12 @@
 import { tool } from '@openai/agents';
 import { Prisma } from '@prisma/client';
-import { addDays, setHours, setMinutes, startOfDay } from 'date-fns';
+import { addDays, addMinutes } from 'date-fns';
 import { z } from 'zod';
 
 import { prisma } from '../lib/prisma.ts';
-import {
-  calendarFeatureEnabled,
-  getCalendarConfig,
-  isWindowFree,
-} from '../lib/google-calendar.ts';
 import { ProposedSlot } from '../lib/types.ts';
+import { formatLocalRange, getLocalYMD, makeZonedDate } from '../lib/time.ts';
+import { calendarFeatureEnabled, getCalendarConfig, isWindowFree } from '../lib/google-calendar.ts';
 
 const proposeSlotsParameters = z
   .object({
@@ -27,29 +24,25 @@ type ProposeSlotsResult = {
   slots: ProposedSlot[];
 };
 
-const SLOT_WINDOWS = [
-  { startHour: 12, endHour: 15 },
-  { startHour: 15, endHour: 18 },
-];
+const BUSINESS_START_HOUR = 8; // 8 AM local
+const BUSINESS_END_HOUR = 18; // 6 PM local
 
-const buildSlotLabel = (
-  baseDate: Date,
-  startHour: number,
-  endHour: number,
-) => {
-  const tomorrow = addDays(new Date(), 1);
-  const isTomorrow =
-    baseDate.getDate() === tomorrow.getDate() &&
-    baseDate.getMonth() === tomorrow.getMonth();
-  const dayLabel = isTomorrow
-    ? 'Tomorrow'
-    : baseDate.toLocaleDateString(undefined, {
-        weekday: 'long',
-        month: 'short',
-        day: 'numeric',
-      });
-  return `${dayLabel} ${startHour}-${endHour}`;
-};
+function estimateDurationMinutesFromLead(lead: { stateMetadata: unknown }): number {
+  try {
+    const meta = (lead.stateMetadata as Record<string, unknown>) ?? {};
+    const last = meta['last_features'] as Record<string, unknown> | undefined;
+    const yards = Number((last?.['cubic_yards_est'] as number | undefined) ?? 0);
+    const quarters = Math.max(1, Math.ceil(yards / 4));
+    let minutes = quarters * 90; // ~1.5h per quarter load
+    const heavy = Array.isArray(last?.['heavy_items']) && (last!['heavy_items'] as unknown[]).length > 0;
+    const stairs = Number((last?.['stairs_flights'] as number | undefined) ?? 0) > 0;
+    const longCarry = Number((last?.['carry_distance_ft'] as number | undefined) ?? 0) > 50;
+    if (heavy || stairs || longCarry) minutes += 30;
+    return minutes;
+  } catch {
+    return 90;
+  }
+}
 
 async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResult> {
   const lead = await prisma.lead.findUnique({
@@ -60,81 +53,50 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
     throw new Error('Lead not found for proposing slots.');
   }
 
-  const preferredDate =
-    (input.preferred_day && new Date(input.preferred_day)) || addDays(new Date(), 1);
-  const baseDate = Number.isNaN(preferredDate.valueOf())
-    ? addDays(new Date(), 1)
-    : preferredDate;
+  const preferredDate = (input.preferred_day && new Date(input.preferred_day)) || new Date();
+  const cfg = getCalendarConfig();
+  const tz = cfg?.timeZone ?? 'America/New_York';
+  const { y, m, d } = getLocalYMD(preferredDate, tz);
+  const durationMin = estimateDurationMinutesFromLead(lead);
 
-  const start = startOfDay(baseDate);
+  const suggestions: ProposedSlot[] = [];
+  const maxSuggestions = 4;
 
-  let slots: ProposedSlot[] = SLOT_WINDOWS.map(({ startHour, endHour }) => {
-    const windowStart = setMinutes(setHours(start, startHour), 0);
-    const windowEnd = setMinutes(setHours(start, endHour), 0);
-    return {
-      id: `${lead.id}-${startHour}-${endHour}`,
-      label: buildSlotLabel(baseDate, startHour, endHour),
-      window_start: windowStart.toISOString(),
-      window_end: windowEnd.toISOString(),
-    };
-  });
+  for (let dayOffset = 0; dayOffset < 7 && suggestions.length < maxSuggestions; dayOffset++) {
+    const base = addDays(new Date(Date.UTC(y, m - 1, d, 0, 0, 0)), dayOffset);
+    const { y: yy, m: mm, d: dd } = getLocalYMD(base, tz);
+    for (let hour = BUSINESS_START_HOUR; hour <= BUSINESS_END_HOUR; hour++) {
+      for (let minute = 0; minute < 60; minute += 30) {
+        const start = makeZonedDate(tz, yy, mm, dd, hour, minute);
+        const end = addMinutes(start, durationMin);
+        // Skip past
+        if (start.getTime() < Date.now()) continue;
+        // Ensure end still within business day in local TZ
+        const endLocalHour = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).format(end));
+        if (endLocalHour > BUSINESS_END_HOUR) continue;
 
-  // Optional: filter against Google Calendar availability
-  if (calendarFeatureEnabled()) {
-    const cfg = getCalendarConfig();
-    if (cfg) {
-      const available: ProposedSlot[] = [];
-      for (const slot of slots) {
-        try {
-          const free = await isWindowFree(
-            slot.window_start,
-            slot.window_end,
-            cfg.id,
-            cfg.timeZone,
-          );
-          if (free) available.push(slot);
-        } catch (err) {
-          console.warn('[Calendar] freebusy failed; keeping slot unfiltered', err);
-          available.push(slot);
-        }
-      }
-      // If nothing is open today, push to next day with the same windows and do a best-effort check.
-      if (available.length === 0) {
-        const nextBase = startOfDay(addDays(baseDate, 1));
-        const nextCandidates: ProposedSlot[] = SLOT_WINDOWS.map(({ startHour, endHour }) => {
-          const s = setMinutes(setHours(nextBase, startHour), 0);
-          const e = setMinutes(setHours(nextBase, endHour), 0);
-          return {
-            id: `${lead.id}-${startHour}-${endHour}-${nextBase.getTime()}`,
-            label: buildSlotLabel(nextBase, startHour, endHour),
-            window_start: s.toISOString(),
-            window_end: e.toISOString(),
-          };
-        });
-        const nextAvailable: ProposedSlot[] = [];
-        for (const slot of nextCandidates) {
+        if (calendarFeatureEnabled() && cfg) {
           try {
-            const free = await isWindowFree(
-              slot.window_start,
-              slot.window_end,
-              cfg.id,
-              cfg.timeZone,
-            );
-            if (free) nextAvailable.push(slot);
-          } catch {
-            nextAvailable.push(slot);
+            const free = await isWindowFree(start.toISOString(), end.toISOString(), cfg.id, tz);
+            if (!free) continue;
+          } catch (e) {
+            console.warn('[Calendar] freebusy failed; proceeding with candidate', e);
           }
         }
-        if (nextAvailable.length > 0) {
-          slots = nextAvailable;
-        } else {
-          slots = nextCandidates; // fall back if API blocked
-        }
-      } else {
-        slots = available;
+
+        suggestions.push({
+          id: `${lead.id}-${start.toISOString()}`,
+          label: formatLocalRange(tz, start, end),
+          window_start: start.toISOString(),
+          window_end: end.toISOString(),
+        });
+        if (suggestions.length >= maxSuggestions) break;
       }
+      if (suggestions.length >= maxSuggestions) break;
     }
   }
+
+  const slots: ProposedSlot[] = suggestions;
 
   await prisma.lead.update({
     where: { id: lead.id },
