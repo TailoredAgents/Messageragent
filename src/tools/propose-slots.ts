@@ -221,7 +221,7 @@ const proposeSlotsJsonSchema = {
       default: null,
     },
   },
-  required: ['lead_id'],
+  required: ['lead_id', 'preferred_day', 'preferred_time_text'],
   $schema: 'http://json-schema.org/draft-07/schema#',
 } as const;
 
