@@ -214,8 +214,14 @@ const proposeSlotsJsonSchema = {
       anyOf: [{ type: 'string' }, { type: 'null' }],
       default: null,
     },
+    preferred_time_text: {
+      description:
+        'Optional raw phrase the customer used for their preferred day/time (e.g., "this Friday at 3 pm").',
+      anyOf: [{ type: 'string' }, { type: 'null' }],
+      default: null,
+    },
   },
-  required: ['lead_id', 'preferred_day'],
+  required: ['lead_id'],
   $schema: 'http://json-schema.org/draft-07/schema#',
 } as const;
 
