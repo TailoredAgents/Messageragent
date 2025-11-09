@@ -8,6 +8,7 @@ import {
   calendarFeatureEnabled,
   getCalendarConfig,
   isWindowFree,
+  upsertCalendarEvent,
 } from '../lib/google-calendar.ts';
 import { generateBookingConfirmationEmail } from '../lib/email-content.ts';
 import { sendTransactionalEmail } from '../lib/email.ts';
@@ -84,7 +85,7 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
 
   const reminderAt = subHours(windowStart, 24);
 
-  const job = await prisma.job.upsert({
+  let job = await prisma.job.upsert({
     where: { quoteId: quote.id },
     create: {
       leadId: lead.id,
@@ -140,6 +141,48 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
         throw new Error(
           'That window was just booked. Please pick another time or day.',
         );
+      }
+
+      try {
+        const lines: string[] = [
+          `Lead: ${lead.name ?? 'Unknown'}`,
+        ];
+        if (lead.phone) lines.push(`Phone: ${lead.phone}`);
+        if (lead.email) lines.push(`Email: ${lead.email}`);
+        if (lead.address) lines.push(`Address: ${lead.address}`);
+        lines.push(`Job ID: ${job.id}`);
+        if (quote) {
+          lines.push(`Quote #: ${quote.id}`);
+          lines.push(`Estimate: $${quote.total.toNumber().toFixed(2)}`);
+        }
+
+        const summary = lead.name
+          ? `Pickup for ${lead.name}`
+          : 'Stonegate Junk Pickup';
+
+        const eventInfo = await upsertCalendarEvent({
+          calendarId: cfg.id,
+          timeZone: cfg.timeZone,
+          summary,
+          description: lines.join('\n'),
+          location: lead.address,
+          start: windowStart,
+          end: windowEnd,
+          eventId: job.googleEventId ?? job.id,
+        });
+
+        job = await prisma.job.update({
+          where: { id: job.id },
+          data: {
+            googleCalendarId: cfg.id,
+            googleEventId: eventInfo.id,
+            googleEventICalUid: eventInfo.iCalUID,
+            googleEventEtag: eventInfo.etag,
+            googleEventHtmlLink: eventInfo.htmlLink,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to upsert Google Calendar event', error);
       }
     }
   }
