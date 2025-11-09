@@ -1,4 +1,4 @@
-import { zonedTimeToUtc, utcToZonedTime, formatInTimeZone } from 'date-fns-tz';
+import { zonedTimeToUtc, formatInTimeZone } from 'date-fns-tz';
 
 export function makeZonedDate(
   timeZone: string,
@@ -25,10 +25,8 @@ export function formatLocalRange(
 }
 
 export function getLocalYMD(date: Date, timeZone: string): { y: number; m: number; d: number } {
-  const z = utcToZonedTime(date, timeZone);
-  const y = Number(formatInTimeZone(z, timeZone, 'yyyy'));
-  const m = Number(formatInTimeZone(z, timeZone, 'MM'));
-  const d = Number(formatInTimeZone(z, timeZone, 'dd'));
+  const y = Number(formatInTimeZone(date, timeZone, 'yyyy'));
+  const m = Number(formatInTimeZone(date, timeZone, 'MM'));
+  const d = Number(formatInTimeZone(date, timeZone, 'dd'));
   return { y, m, d };
 }
-
