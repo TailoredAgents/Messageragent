@@ -59,6 +59,7 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
     throw new Error('Lead not found for proposing slots.');
   }
 
+  const calendarEnabled = calendarFeatureEnabled();
   const cfg = getCalendarConfig();
   const tz = cfg?.timeZone ?? 'America/New_York';
   let preferredMoment = (input.preferred_day && new Date(input.preferred_day)) || new Date();
@@ -106,7 +107,7 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
       ) * 60;
       if (endMinutesLocal > BUSINESS_END_HOUR * 60) continue;
 
-      if (calendarFeatureEnabled() && cfg) {
+      if (calendarEnabled && cfg) {
         try {
           const free = await isWindowFree(start.toISOString(), end.toISOString(), cfg.id, tz);
           if (!free) continue;
@@ -147,7 +148,7 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
         const slot = segment.shift();
         if (!slot) continue;
 
-        if (config.calendarFeatureEnabled && cfg) {
+        if (calendarEnabled && cfg) {
           const start = new Date(slot.window_start);
           if (lastAcceptedEnd && start.getTime() - lastAcceptedEnd.getTime() < MIN_GAP_MIN * 60 * 1000) {
             continue;
