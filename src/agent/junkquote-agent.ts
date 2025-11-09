@@ -81,6 +81,7 @@ TOOLS (internal only—never expose names/outputs)
 - send_message(text, quick_replies=[]) → all customer‑visible replies.
 - price_from_rules(inputs) → compute estimate from PRICING RULES; include its disclaimer.
 - propose_slots(date_range) → offer two windows.
+- propose_slots(date_range, preferred_time_text) → checks availability; always pass the customer’s raw day/time phrase via preferred_time_text when they mention one.
 - confirm_slot(slot_id) → confirm booking.
 - escalate_to_owner(note, thread_id) → owner review.
 

@@ -7,15 +7,18 @@ import { prisma } from '../lib/prisma.ts';
 import { ProposedSlot } from '../lib/types.ts';
 import { formatLocalRange, getLocalYMD, makeZonedDate } from '../lib/time.ts';
 import { calendarFeatureEnabled, getCalendarConfig, isWindowFree } from '../lib/google-calendar.ts';
+import { resolvePreferredDateTime } from '../lib/date-parser.ts';
 
 const proposeSlotsParameters = z
   .object({
     lead_id: z.string().uuid('lead_id must be a valid UUID'),
     preferred_day: z.string().nullish(),
+    preferred_time_text: z.string().nullish(),
   })
   .transform((data) => ({
     ...data,
     preferred_day: data.preferred_day ?? undefined,
+    preferred_time_text: data.preferred_time_text ?? undefined,
   }));
 
 type ProposeSlotsInput = z.infer<typeof proposeSlotsParameters>;
@@ -55,9 +58,20 @@ async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResul
     throw new Error('Lead not found for proposing slots.');
   }
 
-  const preferredDate = (input.preferred_day && new Date(input.preferred_day)) || new Date();
+  let preferredDate = (input.preferred_day && new Date(input.preferred_day)) || new Date();
   const cfg = getCalendarConfig();
   const tz = cfg?.timeZone ?? 'America/New_York';
+  if (input.preferred_time_text) {
+    const resolved = await resolvePreferredDateTime(
+      input.preferred_time_text,
+      tz,
+      new Date(),
+    );
+    if (resolved) {
+      preferredDate = resolved;
+    }
+  }
+
   const { y, m, d } = getLocalYMD(preferredDate, tz);
   const durationMin = estimateDurationMinutesFromLead(lead);
 
@@ -192,6 +206,7 @@ export function buildProposeSlotsTool() {
       proposeSlots(
         proposeSlotsParameters.parse({
           preferred_day: null,
+          preferred_time_text: null,
           ...args,
         }),
       ),
