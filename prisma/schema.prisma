@@ -122,6 +122,14 @@ model Job {
   @@index([status])
 }
 
+model CalendarSyncState {
+  id         String   @id @default(uuid())
+  calendarId String   @unique @map("calendar_id")
+  syncToken  String?  @map("sync_token")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+}
+
 model Approval {
   id         String          @id @default(uuid())
   quoteId    String          @map("quote_id")

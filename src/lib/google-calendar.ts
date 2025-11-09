@@ -120,6 +120,7 @@ type CalendarEventInput = {
   end: Date;
   timeZone: string;
   eventId?: string;
+  privateExtendedProps?: Record<string, string>;
 };
 
 export type CalendarEventInfo = {
@@ -147,6 +148,9 @@ export async function upsertCalendarEvent(
     location: input.location ?? undefined,
     start: { dateTime: input.start.toISOString(), timeZone: input.timeZone },
     end: { dateTime: input.end.toISOString(), timeZone: input.timeZone },
+    extendedProperties: input.privateExtendedProps
+      ? { private: input.privateExtendedProps }
+      : undefined,
   };
 
   const headers = {

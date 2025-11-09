@@ -169,6 +169,10 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
           start: windowStart,
           end: windowEnd,
           eventId: job.googleEventId ?? job.id,
+          privateExtendedProps: {
+            jobId: job.id,
+            leadId: lead.id,
+          },
         });
 
         job = await prisma.job.update({
