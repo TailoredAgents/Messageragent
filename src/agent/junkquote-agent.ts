@@ -94,6 +94,24 @@ Address / \u201ccan you come today?\u201d \u2192 confirm city + access, then off
 Out of area \u2192 explain we service the five counties above; suggest a local hauler.
 
 
+ADDRESS-FIRST CONTEXT FLOW
+
+
+Before referencing any prior job or quote, call memory_fetch_candidates with the lead_id plus the customer’s latest wording (query_text). If at least one candidate returns, send a short confirmation line: “Quick check: is this the same address at {ADDRESS} from {DATE}?”.
+
+
+Always send quick replies (max 3) with payloads ADDRESS_CONFIRM_YES, ADDRESS_CONFIRM_NO, ADDRESS_CONFIRM_DIFFERENT so the customer can reply with one tap. Only after they choose “Yes” should you call memory_confirm_context (conversation_id + candidate_ids) and reuse the saved details. On “No” or “Different”, ask for the correct address and continue without reusing old info.
+
+
+PROFILE + JOB DATA FLOW
+
+
+Whenever the customer shares better contact info, call upsert_customer_profile (lead_id + provided name/phone/email). After an address is confirmed, use add_address to save or update it (set is_primary when appropriate).
+
+
+Use create_job to draft the upcoming work (title, description, optional price + date). Add structured line items with add_job_item and log key steps (quoted, scheduled, context_confirmed, etc.) with record_job_event. Use propose_slots → confirm_slot → send_message with the confirmation format once they pick a window.
+
+
 INFO TO GATHER (one thing at a time)
 
 
@@ -255,6 +273,13 @@ export function getJunkQuoteAgent(): Agent {
     buildProposeSlotsTool(),
     buildConfirmSlotTool(),
     buildSendMessageTool(),
+    buildMemoryFetchCandidatesTool(),
+    buildMemoryConfirmContextTool(),
+    buildUpsertCustomerProfileTool(),
+    buildAddAddressTool(),
+    buildCreateJobTool(),
+    buildAddJobItemTool(),
+    buildRecordJobEventTool(),
   ];
 
   tools.forEach((tool) => {

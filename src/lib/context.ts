@@ -12,6 +12,12 @@ export const ADDRESS_CONFIRM_YES = 'ADDRESS_CONFIRM_YES';
 export const ADDRESS_CONFIRM_NO = 'ADDRESS_CONFIRM_NO';
 export const ADDRESS_CONFIRM_DIFFERENT = 'ADDRESS_CONFIRM_DIFFERENT';
 
+export type ContextConfirmationChoice = 'yes' | 'no' | 'different';
+
+const YES_KEYWORDS = ['yes', 'y', 'yeah', 'yep', 'ya', 'sure', 'correct', 'right'];
+const NO_KEYWORDS = ['no', 'n', 'nope', 'nah'];
+const DIFFERENT_KEYWORDS = ['different', 'diff', 'another', 'not that', 'new address'];
+
 type JobWithLead = Prisma.JobGetPayload<{ include: { lead: true } }>;
 type LeadRecord = Prisma.LeadGetPayload<{}>;
 type CustomerAddressRecord = Prisma.CustomerAddressGetPayload<{}>;
@@ -322,4 +328,42 @@ function extractContextMemory(value: Prisma.JsonObject): Prisma.JsonObject {
     return {};
   }
   return raw as Prisma.JsonObject;
+}
+
+export function parseContextConfirmationInput(
+  payload: string | null | undefined,
+  text: string | null | undefined,
+): ContextConfirmationChoice | null {
+  if (payload === ADDRESS_CONFIRM_YES) {
+    return 'yes';
+  }
+  if (payload === ADDRESS_CONFIRM_NO) {
+    return 'no';
+  }
+  if (payload === ADDRESS_CONFIRM_DIFFERENT) {
+    return 'different';
+  }
+
+  const normalized = text?.trim().toLowerCase() ?? '';
+  if (!normalized) {
+    return null;
+  }
+
+  if (YES_KEYWORDS.some((keyword) => normalized === keyword || normalized.startsWith(`${keyword} `))) {
+    return 'yes';
+  }
+
+  if (NO_KEYWORDS.some((keyword) => normalized === keyword || normalized.startsWith(`${keyword} `))) {
+    return 'no';
+  }
+
+  if (
+    DIFFERENT_KEYWORDS.some(
+      (keyword) => normalized === keyword || normalized.includes(keyword),
+    )
+  ) {
+    return 'different';
+  }
+
+  return null;
 }
