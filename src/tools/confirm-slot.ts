@@ -33,16 +33,23 @@ const confirmSlotParameters = z
     slot: slotSchema,
     quote_id: z.string().uuid().nullish(),
     notes: z.string().nullish(),
+    address: z.string().nullish(),
   })
   .transform((data) => ({
     ...data,
     quote_id: data.quote_id ?? undefined,
     notes: data.notes ?? undefined,
+    address: data.address?.trim() ? data.address.trim() : undefined,
   }));
 
 type ConfirmSlotInput = z.infer<typeof confirmSlotParameters>;
 
-type ConfirmSlotResult = {
+type ConfirmSlotNeedsAddressResult = {
+  needs_address: true;
+  message: string;
+};
+
+type ConfirmSlotSuccessResult = {
   job_id: string;
   quote_id: string;
   window_start: string;
@@ -51,13 +58,15 @@ type ConfirmSlotResult = {
   calendar_url?: string;
 };
 
+type ConfirmSlotResult = ConfirmSlotSuccessResult | ConfirmSlotNeedsAddressResult;
+
 const monetaryArraySchema = z
   .array(z.object({ label: z.string(), amount: z.number() }))
   .default([]);
 const notesArraySchema = z.array(z.string()).default([]);
 
 async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> {
-  const lead = await prisma.lead.findUnique({
+  let lead = await prisma.lead.findUnique({
     where: { id: input.lead_id },
   });
 
@@ -65,10 +74,20 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
     throw new Error('Lead not found for booking.');
   }
 
-  if (!lead.address || lead.address.trim().length === 0) {
-    throw new Error(
-      'Need the service address before locking in a pickup window.',
-    );
+  if (input.address && input.address !== lead.address?.trim()) {
+    lead = await prisma.lead.update({
+      where: { id: lead.id },
+      data: { address: input.address },
+    });
+  }
+
+  const effectiveAddress = (input.address ?? lead.address ?? '').trim();
+
+  if (!effectiveAddress) {
+    return {
+      needs_address: true,
+      message: 'Need the service address before locking in a pickup window.',
+    };
   }
 
   const windowStart = new Date(input.slot.window_start);
@@ -158,7 +177,7 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
         ];
         if (lead.phone) lines.push(`Phone: ${lead.phone}`);
         if (lead.email) lines.push(`Email: ${lead.email}`);
-        if (lead.address) lines.push(`Address: ${lead.address}`);
+        lines.push(`Address: ${effectiveAddress}`);
         lines.push(`Job ID: ${job.id}`);
         if (quote) {
           lines.push(`Quote #: ${quote.id}`);
@@ -174,7 +193,7 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
           timeZone: cfg.timeZone,
           summary,
           description: lines.join('\n'),
-          location: lead.address,
+          location: effectiveAddress,
           start: windowStart,
           end: windowEnd,
           eventId: job.googleEventId ?? job.id,
@@ -203,7 +222,7 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
   const calendar = await createCalendarHold({
     jobId: job.id,
     leadName: lead.name,
-    address: lead.address,
+    address: effectiveAddress,
     windowStart,
     windowEnd,
     baseUrl: process.env.BASE_URL,
@@ -223,7 +242,7 @@ async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> 
       const email = await generateBookingConfirmationEmail({
         leadName: lead.name,
         companyName,
-        address: lead.address,
+        address: effectiveAddress,
         windowStart,
         windowEnd,
         quoteTotal: quote.total.toNumber(),
