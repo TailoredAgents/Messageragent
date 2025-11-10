@@ -5,7 +5,8 @@ import { Prisma } from '@prisma/client';
 import { DateTime } from 'luxon';
 
 import { getJunkQuoteAgent } from '../agent/index.ts';
-import { getRunner } from '../lib/agent-runner.ts';
+import { buildAgentRunContext, getRunner } from '../lib/agent-runner.ts';
+import { getTenantTimeZone } from '../lib/config.ts';
 import { prisma } from '../lib/prisma.ts';
 import { recordLeadAttachments } from '../lib/attachments.ts';
 import { maybeRunVisionAutomation } from '../lib/vision-automation.ts';
@@ -82,6 +83,34 @@ async function ensureLead(
   return { lead: created, isNew: true };
 }
 
+async function ensureConversation({
+  channel,
+  externalId,
+  leadId,
+  customerId,
+}: {
+  channel: 'messenger' | 'sms';
+  externalId: string;
+  leadId: string;
+  customerId?: string | null;
+}) {
+  return prisma.conversation.upsert({
+    where: { channel_externalId: { channel, externalId } },
+    update: {
+      leadId,
+      customerId: customerId ?? undefined,
+      lastMessageAt: new Date(),
+    },
+    create: {
+      channel,
+      externalId,
+      leadId,
+      customerId: customerId ?? undefined,
+      lastMessageAt: new Date(),
+    },
+  });
+}
+
 export function buildAgentInput({
   lead,
   text,
@@ -140,6 +169,12 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
   }
 
   const { lead, isNew } = await ensureLead(psid);
+  const conversation = await ensureConversation({
+    channel: 'messenger',
+    externalId: psid,
+    leadId: lead.id,
+    customerId: lead.customerId,
+  });
 
   const attachmentHistory = await recordLeadAttachments(
     lead.id,
@@ -187,8 +222,9 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
 
   const metadata = (lead.stateMetadata as Prisma.JsonValue | null) ?? null;
   const proposedSlots = extractProposedSlots(metadata);
+  const tenantTimeZone = getTenantTimeZone();
   const calendarConfig = getCalendarConfig();
-  const timeZone = calendarConfig?.timeZone ?? 'America/New_York';
+  const timeZone = calendarConfig?.timeZone ?? tenantTimeZone;
   const slotMatch =
     proposedSlots.length > 0
       ? matchSlotSelection({
@@ -268,11 +304,15 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
 
   try {
     await runner.run(agent, runnerInput, {
-      context: {
+      context: buildAgentRunContext({
         leadId: lead.id,
+        conversationId: conversation.id,
+        customerId: lead.customerId,
+        channel: 'messenger',
+        timeZone,
         messengerPsid: psid,
         attachments: attachmentsForContext,
-      },
+      }),
     });
     log.info(
       {

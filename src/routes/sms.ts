@@ -4,7 +4,8 @@ import type { FastifyRequest } from 'fastify/types/request';
 import { Prisma } from '@prisma/client';
 
 import { getJunkQuoteAgent } from '../agent/index.ts';
-import { getRunner } from '../lib/agent-runner.ts';
+import { buildAgentRunContext, getRunner } from '../lib/agent-runner.ts';
+import { getTenantTimeZone } from '../lib/config.ts';
 import { prisma } from '../lib/prisma.ts';
 import { validateTwilioSignature } from '../adapters/twilio.ts';
 import { recordLeadAttachments } from '../lib/attachments.ts';
@@ -47,6 +48,34 @@ async function ensureSmsLead(
   });
 
   return { lead: created, isNew: true };
+}
+
+async function ensureConversation({
+  channel,
+  externalId,
+  leadId,
+  customerId,
+}: {
+  channel: 'messenger' | 'sms';
+  externalId: string;
+  leadId: string;
+  customerId?: string | null;
+}) {
+  return prisma.conversation.upsert({
+    where: { channel_externalId: { channel, externalId } },
+    update: {
+      leadId,
+      customerId: customerId ?? undefined,
+      lastMessageAt: new Date(),
+    },
+    create: {
+      channel,
+      externalId,
+      leadId,
+      customerId: customerId ?? undefined,
+      lastMessageAt: new Date(),
+    },
+  });
 }
 
 function gatherMedia(body: TwilioWebhookBody): string[] {
@@ -120,6 +149,12 @@ async function processSmsEvent(
   }
 
   const { lead, isNew } = await ensureSmsLead(from);
+  const conversation = await ensureConversation({
+    channel: 'sms',
+    externalId: from,
+    leadId: lead.id,
+    customerId: lead.customerId,
+  });
 
   const attachmentHistory = await recordLeadAttachments(
     lead.id,
@@ -178,12 +213,17 @@ async function processSmsEvent(
     request.log.error({ err: error, leadId: lead.id }, 'Auto vision analysis failed');
   });
 
+  const timeZone = getTenantTimeZone();
   await runner.run(agent, inputText, {
-    context: {
+    context: buildAgentRunContext({
       leadId: lead.id,
+      conversationId: conversation.id,
+      customerId: lead.customerId,
+      channel: 'sms',
+      timeZone,
       smsFrom: from,
       attachments: attachmentsForContext,
-    },
+    }),
   });
 
   reply.type('text/xml').send('<Response></Response>');

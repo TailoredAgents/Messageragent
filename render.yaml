@@ -28,6 +28,10 @@ services:
         sync: false
       - key: FB_VERIFY_TOKEN
         sync: false
+      - key: CONTEXT_MEMORY_ENABLED
+        value: "false"
+      - key: CONTEXT_STRICT_ADDRESS_CONFIRMATION
+        value: "true"
 
   - type: worker
     name: junkquote-reminder-worker
@@ -67,6 +71,10 @@ services:
         sync: false
       - key: TWILIO_PHONE_NUMBER
         sync: false
+      - key: CONTEXT_MEMORY_ENABLED
+        value: "false"
+      - key: CONTEXT_STRICT_ADDRESS_CONFIRMATION
+        value: "true"
 
 databases:
   - name: junkquote-db
