@@ -55,7 +55,7 @@ enum MessageRole {
 model Lead {
   id                       String      @id @default(uuid())
   channel                  Channel
-  customerId               String?     @map("customer_id")
+  customerId               String      @map("customer_id")
   name                     String?
   messengerPsid            String?     @unique
   phone                    String?
@@ -71,7 +71,7 @@ model Lead {
   createdAt                DateTime    @default(now()) @map("created_at")
   updatedAt                DateTime    @updatedAt @map("updated_at")
 
-  customer                 Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer                 Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
   quotes                   Quote[]
   jobs                     Job[]
   audits                   Audit[]
@@ -111,7 +111,7 @@ model Quote {
 model Job {
   id                 String     @id @default(uuid())
   leadId             String     @map("lead_id")
-  customerId         String?    @map("customer_id")
+  customerId         String     @map("customer_id")
   quoteId            String?    @map("quote_id") @unique
   windowStart        DateTime   @map("window_start")
   windowEnd          DateTime   @map("window_end")
@@ -127,7 +127,7 @@ model Job {
   updatedAt          DateTime   @updatedAt @map("updated_at")
 
   lead      Lead      @relation(fields: [leadId], references: [id])
-  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customer  Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   quote     Quote?    @relation(fields: [quoteId], references: [id])
   items     JobItem[]
   events    JobEvent[]
