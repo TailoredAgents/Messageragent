@@ -172,6 +172,19 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
     lead.curbside = true;
   }
 
+  const detectedAddress = maybeExtractAddress(textPayload);
+  if (detectedAddress && detectedAddress !== lead.address?.trim()) {
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: { address: detectedAddress },
+    });
+    lead.address = detectedAddress;
+    log.info(
+      { leadId: lead.id, address: detectedAddress },
+      'Captured service address from message.',
+    );
+  }
+
   const metadata = (lead.stateMetadata as Prisma.JsonValue | null) ?? null;
   const proposedSlots = extractProposedSlots(metadata);
   const calendarConfig = getCalendarConfig();
@@ -385,6 +398,49 @@ function formatSlotLabel(slot: ProposedSlot): string {
     return slot.label ?? slot.id;
   }
   return `${start.toFormat('ccc LLL d h:mm a')}–${end.toFormat('h:mm a')}`;
+}
+
+const STREET_SUFFIXES = [
+  'st',
+  'street',
+  'rd',
+  'road',
+  'dr',
+  'drive',
+  'ln',
+  'lane',
+  'ave',
+  'avenue',
+  'blvd',
+  'boulevard',
+  'ct',
+  'court',
+  'hwy',
+  'highway',
+  'trl',
+  'trail',
+  'pkwy',
+  'parkway',
+  'way',
+];
+
+function maybeExtractAddress(text: string): string | null {
+  const trimmed = text.trim();
+  if (trimmed.length < 8) return null;
+  if (!/\d/.test(trimmed)) return null;
+  if (!/[a-zA-Z]/.test(trimmed)) return null;
+  const lower = trimmed.toLowerCase();
+  const hasStreetSuffix = STREET_SUFFIXES.some((suffix) => {
+    return (
+      lower.includes(` ${suffix} `) ||
+      lower.endsWith(` ${suffix}`) ||
+      lower.includes(` ${suffix},`)
+    );
+  });
+  if (!hasStreetSuffix) {
+    return null;
+  }
+  return trimmed.replace(/\s+/g, ' ').trim();
 }
 
 async function handleMessengerPost(
