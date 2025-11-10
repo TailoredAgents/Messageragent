@@ -45,9 +45,17 @@ enum ApprovalStatus {
   denied
 }
 
+enum MessageRole {
+  user
+  assistant
+  system
+  tool
+}
+
 model Lead {
   id                       String      @id @default(uuid())
   channel                  Channel
+  customerId               String?     @map("customer_id")
   name                     String?
   messengerPsid            String?     @unique
   phone                    String?
@@ -63,13 +71,16 @@ model Lead {
   createdAt                DateTime    @default(now()) @map("created_at")
   updatedAt                DateTime    @updatedAt @map("updated_at")
 
+  customer                 Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   quotes                   Quote[]
   jobs                     Job[]
   audits                   Audit[]
   attachments              LeadAttachment[]
+  conversations            Conversation[]
 
   @@index([channel])
   @@index([stage])
+  @@index([customerId])
 }
 
 model Quote {
@@ -100,6 +111,7 @@ model Quote {
 model Job {
   id                 String     @id @default(uuid())
   leadId             String     @map("lead_id")
+  customerId         String?    @map("customer_id")
   quoteId            String?    @map("quote_id") @unique
   windowStart        DateTime   @map("window_start")
   windowEnd          DateTime   @map("window_end")
@@ -114,10 +126,14 @@ model Job {
   createdAt          DateTime   @default(now()) @map("created_at")
   updatedAt          DateTime   @updatedAt @map("updated_at")
 
-  lead   Lead   @relation(fields: [leadId], references: [id])
-  quote  Quote? @relation(fields: [quoteId], references: [id])
+  lead      Lead      @relation(fields: [leadId], references: [id])
+  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  quote     Quote?    @relation(fields: [quoteId], references: [id])
+  items     JobItem[]
+  events    JobEvent[]
 
   @@index([leadId])
+  @@index([customerId])
   @@index([windowStart])
   @@index([status])
 }
@@ -182,4 +198,131 @@ model Config {
   channels       Json     @db.JsonB
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
+}
+
+// Context Memory & Customer Models
+
+model Customer {
+  id        String   @id @default(uuid())
+  name      String?
+  phone     String?
+  email     String?
+  metadata  Json?    @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  leads         Lead[]
+  jobs          Job[]
+  addresses     CustomerAddress[]
+  conversations Conversation[]
+  memoryNotes   MemoryNote[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([createdAt])
+}
+
+model CustomerAddress {
+  id         String   @id @default(uuid())
+  customerId String   @map("customer_id")
+  address    String
+  city       String?
+  state      String?
+  zip        String?
+  lat        Float?
+  lng        Float?
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  metadata   Json?    @db.JsonB
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([customerId, isPrimary])
+}
+
+model Conversation {
+  id            String    @id @default(uuid())
+  customerId    String?   @map("customer_id")
+  leadId        String?   @map("lead_id")
+  channel       Channel
+  externalId    String?   @map("external_id")
+  startedAt     DateTime  @default(now()) @map("started_at")
+  lastMessageAt DateTime? @map("last_message_at")
+  metadata      Json?     @db.JsonB
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lead     Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  messages Message[]
+
+  @@unique([channel, externalId])
+  @@index([customerId])
+  @@index([leadId])
+  @@index([lastMessageAt])
+  @@index([startedAt])
+}
+
+model Message {
+  id             String      @id @default(uuid())
+  conversationId String      @map("conversation_id")
+  role           MessageRole
+  content        String      @db.Text
+  metadata       Json?       @db.JsonB
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+  @@index([createdAt])
+}
+
+model MemoryNote {
+  id             String    @id @default(uuid())
+  customerId     String?   @map("customer_id")
+  conversationId String?   @map("conversation_id")
+  content        String    @db.Text
+  metadata       Json?     @db.JsonB
+  expiresAt      DateTime? @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([conversationId])
+  @@index([createdAt])
+  @@index([expiresAt])
+}
+
+model JobItem {
+  id          String   @id @default(uuid())
+  jobId       String   @map("job_id")
+  description String
+  quantity    Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal  @map("unit_price") @db.Decimal(10, 2)
+  total       Decimal  @db.Decimal(10, 2)
+  metadata    Json?    @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+}
+
+model JobEvent {
+  id        String   @id @default(uuid())
+  jobId     String   @map("job_id")
+  eventType String   @map("event_type")
+  actor     String?
+  metadata  Json?    @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at")
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([jobId, createdAt])
+  @@index([eventType])
 }
