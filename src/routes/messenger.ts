@@ -188,6 +188,7 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
     slotMatch,
     lead,
     message: textPayload,
+    proposedSlots,
   });
   if (slotMatch) {
     log.info(
@@ -319,10 +320,12 @@ function buildAutomationHints({
   slotMatch,
   lead,
   message,
+  proposedSlots,
 }: {
   slotMatch: ReturnType<typeof matchSlotSelection>;
   lead: LeadWithRelations;
   message: string;
+  proposedSlots: ProposedSlot[];
 }): string[] {
   const notes: string[] = [];
   if (slotMatch) {
@@ -334,6 +337,25 @@ function buildAutomationHints({
   }
   if (!lead.address) {
     notes.push('No service address captured yet—ask for it before booking.');
+  }
+  const awaitingSlotSelection =
+    !slotMatch &&
+    proposedSlots.length > 0 &&
+    (!lead.stateMetadata ||
+      typeof lead.stateMetadata !== 'object' ||
+      !(lead.stateMetadata as Record<string, unknown>).booked_job_id);
+  if (awaitingSlotSelection) {
+    const lowerMessage = message.toLowerCase();
+    const mentionsAccess = CURBSIDE_KEYWORDS.some((keyword) =>
+      lowerMessage.includes(keyword),
+    );
+    const basePrompt =
+      'Customer hasn’t picked a window yet. Re-offer the proposed slots or ask which works best, then confirm once they choose.';
+    notes.push(
+      mentionsAccess
+        ? `${basePrompt} They just shared access details, so move the conversation back to scheduling.`
+        : basePrompt,
+    );
   }
   return notes;
 }
