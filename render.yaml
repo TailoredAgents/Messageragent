@@ -29,7 +29,7 @@ services:
       - key: FB_VERIFY_TOKEN
         sync: false
       - key: CONTEXT_MEMORY_ENABLED
-        value: "false"
+        value: "true"
       - key: CONTEXT_STRICT_ADDRESS_CONFIRMATION
         value: "true"
 
@@ -72,7 +72,7 @@ services:
       - key: TWILIO_PHONE_NUMBER
         sync: false
       - key: CONTEXT_MEMORY_ENABLED
-        value: "false"
+        value: "true"
       - key: CONTEXT_STRICT_ADDRESS_CONFIRMATION
         value: "true"
 
