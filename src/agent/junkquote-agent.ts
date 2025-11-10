@@ -1,11 +1,18 @@
 import { Agent } from '@openai/agents';
 
 import {
+  buildAddAddressTool,
+  buildAddJobItemTool,
   buildAnalyzeImagesTool,
   buildConfirmSlotTool,
+  buildCreateJobTool,
+  buildMemoryConfirmContextTool,
+  buildMemoryFetchCandidatesTool,
   buildPriceFromRulesTool,
   buildProposeSlotsTool,
+  buildRecordJobEventTool,
   buildSendMessageTool,
+  buildUpsertCustomerProfileTool,
 } from '../tools/index.ts';
 import { validateToolDefinition } from '../lib/tool-validation.ts';
 
