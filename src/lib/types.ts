@@ -41,3 +41,16 @@ export type MessengerQuickReply = {
   payload: string;
 };
 
+export type ContextCandidate = {
+  id: string;
+  source: 'job' | 'lead';
+  leadId?: string | null;
+  jobId?: string | null;
+  customerId?: string | null;
+  addressId?: string | null;
+  addressLine?: string | null;
+  category?: string | null;
+  summary: string;
+  lastInteractionAt: Date;
+  score: number;
+};
