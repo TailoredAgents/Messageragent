@@ -5,6 +5,11 @@ type Pricebook = {
   min_job: number;
   curbside_min_job: number;
   curbside_discount_pct: number;
+  promo_discount?: {
+    label?: string;
+    discount_pct: number;
+    min_base_after_discount?: number;
+  };
   volume_tiers: Array<{ name: string; yd3: number; full_service: number }>;
   weight_policy: {
     included_full_load_lb: number;
@@ -102,6 +107,7 @@ export function computeQuote({
   };
 
   let basePrice = 0;
+  let baseLoadAmount = 0;
 
   if (features.bedload) {
     if (!features.bedload_type) {
@@ -142,6 +148,7 @@ export function computeQuote({
         label: `${tier.name} load (${tier.yd3} yd³)`,
         amount: basePrice,
       });
+      baseLoadAmount = basePrice;
       if (tier === tiers.at(-1) && features.cubic_yards_est > tier.yd3) {
         applyApprovalFlag(
           `Estimated volume ${features.cubic_yards_est} yd³ exceeds trailer capacity.`,
@@ -227,24 +234,58 @@ export function computeQuote({
   let subtotal = lineItems.reduce((sum, item) => sum + item.amount, 0);
   subtotal = roundCurrency(subtotal);
 
-  const curbsideEligible = features.curbside || lead.curbside;
-  if (curbsideEligible && subtotal > 0) {
-    let discount = roundCurrency(
-      (subtotal * pricebook.curbside_discount_pct) / 100,
-    );
-    const totalAfterDiscount = roundCurrency(subtotal - discount);
-    if (totalAfterDiscount < pricebook.curbside_min_job) {
-      discount = roundCurrency(subtotal - pricebook.curbside_min_job);
-      if (discount < 0) {
-        discount = 0;
+  let promoApplied = false;
+  const promoConfig = pricebook.promo_discount;
+  const promoEligible = !features.bedload && baseLoadAmount > 0;
+  if (
+    promoConfig &&
+    promoConfig.discount_pct > 0 &&
+    promoEligible
+  ) {
+    const promoPct = promoConfig.discount_pct;
+    const promoLabel =
+      promoConfig.label ?? `Promo discount (${promoPct}%)`;
+    let promoDiscount = roundCurrency((baseLoadAmount * promoPct) / 100);
+    if (
+      promoConfig.min_base_after_discount !== undefined &&
+      promoConfig.min_base_after_discount >= 0
+    ) {
+      const discountedBase = roundCurrency(baseLoadAmount - promoDiscount);
+      if (discountedBase < promoConfig.min_base_after_discount) {
+        promoDiscount = roundCurrency(
+          baseLoadAmount - promoConfig.min_base_after_discount,
+        );
       }
-      notes.push('Curbside discount limited by curbside minimum job rate.');
     }
-    if (discount > 0) {
+    if (promoDiscount > 0) {
       discounts.push({
-        label: `Curbside discount (${pricebook.curbside_discount_pct}%)`,
-        amount: -discount,
+        label: promoLabel,
+        amount: -promoDiscount,
       });
+      promoApplied = true;
+    }
+  }
+
+  if (!promoApplied) {
+    const curbsideEligible = features.curbside || lead.curbside;
+    if (curbsideEligible && subtotal > 0) {
+      let discount = roundCurrency(
+        (subtotal * pricebook.curbside_discount_pct) / 100,
+      );
+      const totalAfterDiscount = roundCurrency(subtotal - discount);
+      if (totalAfterDiscount < pricebook.curbside_min_job) {
+        discount = roundCurrency(subtotal - pricebook.curbside_min_job);
+        if (discount < 0) {
+          discount = 0;
+        }
+        notes.push('Curbside discount limited by curbside minimum job rate.');
+      }
+      if (discount > 0) {
+        discounts.push({
+          label: `Curbside discount (${pricebook.curbside_discount_pct}%)`,
+          amount: -discount,
+        });
+      }
     }
   }
 

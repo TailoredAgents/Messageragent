@@ -19,7 +19,11 @@
     "trailer": { "cubic_yards": 16.6, "label": "16-yard dumpster trailer" },
     "min_job": 150,
     "curbside_min_job": 119,
-    "curbside_discount_pct": 25,
+    "curbside_discount_pct": 10,
+    "promo_discount": {
+      "label": "Facebook Ad Promo",
+      "discount_pct": 25
+    },
     "volume_tiers": [
       { "name": "minimum", "yd3": 1.5, "full_service": 150 },
       { "name": "1/8", "yd3": 2.1, "full_service": 189 },
