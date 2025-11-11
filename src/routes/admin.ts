@@ -13,6 +13,7 @@ import {
 } from 'date-fns';
 
 import { prisma } from '../lib/prisma.ts';
+import { getAgentRuntimeStatus, setAgentPaused } from '../lib/agent-state.ts';
 
 type JsonRecord = Record<string, unknown>;
 type StageTone = 'warm' | 'cool' | 'success' | 'neutral';
@@ -27,6 +28,7 @@ type AdminTab =
 
 interface AdminQuery {
   tab?: string;
+  flash?: string;
 }
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
@@ -371,6 +373,16 @@ export async function adminRoutes(fastify: FastifyInstance) {
       }
 
       const now = new Date();
+      const agentRuntimeStatus = await getAgentRuntimeStatus();
+      const agentStatus = {
+        paused: agentRuntimeStatus.paused,
+        updatedBy: agentRuntimeStatus.updatedBy ?? 'Owner',
+        updatedAt: agentRuntimeStatus.updatedAt,
+        updatedRelative: formatDistanceToNow(agentRuntimeStatus.updatedAt, {
+          addSuffix: true,
+        }),
+        updatedExact: format(agentRuntimeStatus.updatedAt, 'MMM d, yyyy @ h:mm a'),
+      };
       const [leadsRaw, approvalsRaw, auditsRaw] = await Promise.all([
         prisma.lead.findMany({
           orderBy: { updatedAt: 'desc' },
@@ -766,6 +778,14 @@ export async function adminRoutes(fastify: FastifyInstance) {
       ) as AdminTab;
       const { title, subtitle, template } = tabViewConfig[activeTab];
 
+      const flashToken = (request.query.flash ?? '').toLowerCase();
+      let flashMessage: string | null = null;
+      if (flashToken === 'paused') {
+        flashMessage = 'Agent paused. Manual takeover enabled.';
+      } else if (flashToken === 'resumed') {
+        flashMessage = 'Agent resumed. Automations are live.';
+      }
+
       return reply.view('layout.ejs', {
         pageTitle: title,
         subtitle,
@@ -775,7 +795,8 @@ export async function adminRoutes(fastify: FastifyInstance) {
         extraStylesheets: [],
         activeNav: activeTab,
         bodyTemplate: template,
-        flashMessage: null,
+        flashMessage,
+        agentStatus,
         summary,
         metricsCards,
         stageBreakdown,
@@ -785,6 +806,41 @@ export async function adminRoutes(fastify: FastifyInstance) {
         activityFeed,
         photoGallery,
       });
+    },
+  );
+
+  fastify.post(
+    '/admin/agent-toggle',
+    async (
+      request: FastifyRequest<{
+        Body: { paused?: string; actor?: string };
+      }>,
+      reply,
+    ) => {
+      if (!requireAdminPassword(request, reply)) {
+        return;
+      }
+
+      const desiredPaused = request.body?.paused === 'true';
+      const actor =
+        (request.body?.actor && request.body.actor.trim().length > 0
+          ? request.body.actor.trim()
+          : 'Owner');
+
+      const state = await setAgentPaused(desiredPaused, actor);
+      await prisma.audit.create({
+        data: {
+          actor: 'owner',
+          action: 'agent_pause_toggle',
+          payload: {
+            paused: state.paused,
+            updated_by: actor,
+          } as JsonRecord,
+        },
+      });
+
+      const flash = state.paused ? 'paused' : 'resumed';
+      reply.redirect(`/admin?flash=${flash}`);
     },
   );
 

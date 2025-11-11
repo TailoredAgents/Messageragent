@@ -34,6 +34,34 @@
 </section>
 
 <section class="section">
+  <div class="agent-toggle-card">
+    <div
+      class="agent-toggle-card__status <%= agentStatus && agentStatus.paused ? 'is-paused' : 'is-running' %>"
+    >
+      <div class="agent-toggle-card__label">Automation Status</div>
+      <div class="agent-toggle-card__value">
+        <%= agentStatus && agentStatus.paused ? 'Agent Paused' : 'Agent Running' %>
+      </div>
+      <% if (agentStatus) { %>
+      <div class="agent-toggle-card__meta">
+        Updated <%= agentStatus.updatedRelative %> by
+        <%= agentStatus.updatedBy %>
+      </div>
+      <% } %>
+    </div>
+    <form class="agent-toggle-card__form" method="post" action="/admin/agent-toggle">
+      <input
+        type="hidden"
+        name="paused"
+        value="<%= agentStatus && agentStatus.paused ? 'false' : 'true' %>"
+      />
+      <input type="hidden" name="actor" value="<%= adminUserLabel || 'Owner' %>" />
+      <button class="button button--primary" type="submit">
+        <%= agentStatus && agentStatus.paused ? 'Resume Agent' : 'Pause Agent' %>
+      </button>
+    </form>
+  </div>
+
   <div class="section__header">
     <h3 class="section__title">Executive Metrics</h3>
     <p class="section__subtitle">

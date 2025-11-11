@@ -48,6 +48,7 @@ import {
   writeSchedulingState,
   type SchedulingState,
 } from '../lib/scheduling-state.ts';
+import { isAgentPaused } from '../lib/agent-state.ts';
 
 type LeadWithRelations = Prisma.LeadGetPayload<{
   include: { quotes: { orderBy: { createdAt: 'desc' } } };
@@ -454,6 +455,25 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
     conversation,
   });
   if (slotHandled) {
+    return;
+  }
+
+  if (await isAgentPaused()) {
+    log.info(
+      { leadId: lead.id, psid },
+      'Agent is paused; skipping messenger automation.',
+    );
+    await prisma.audit.create({
+      data: {
+        leadId: lead.id,
+        actor: 'system',
+        action: 'agent_paused_skip',
+        payload: {
+          channel: 'messenger',
+          text: textPayload,
+        } as Prisma.JsonObject,
+      },
+    });
     return;
   }
 

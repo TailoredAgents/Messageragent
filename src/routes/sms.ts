@@ -19,6 +19,7 @@ import {
 } from '../adapters/twilio.ts';
 import { recordLeadAttachments } from '../lib/attachments.ts';
 import { maybeRunVisionAutomation } from '../lib/vision-automation.ts';
+import { isAgentPaused } from '../lib/agent-state.ts';
 import type { ContextCandidate, ProposedSlot } from '../lib/types.ts';
 import { proposeSlotsDirect } from '../tools/propose-slots.ts';
 import { resolvePreferredDateTime } from '../lib/date-parser.ts';
@@ -1372,6 +1373,26 @@ async function processSmsEvent(
     conversation,
   });
   if (slotHandled) {
+    reply.type('text/xml').send('<Response></Response>');
+    return;
+  }
+
+  if (await isAgentPaused()) {
+    request.log.info(
+      { leadId: lead.id, from },
+      'Agent is paused; skipping SMS automation.',
+    );
+    await prisma.audit.create({
+      data: {
+        leadId: lead.id,
+        actor: 'system',
+        action: 'agent_paused_skip',
+        payload: {
+          channel: 'sms',
+          text: textPayload,
+        } as Prisma.JsonObject,
+      },
+    });
     reply.type('text/xml').send('<Response></Response>');
     return;
   }

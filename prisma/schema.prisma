@@ -200,6 +200,15 @@ model Config {
   updatedAt      DateTime @updatedAt @map("updated_at")
 }
 
+model AgentRuntimeState {
+  id          String   @id @default(uuid())
+  tenantId    String   @unique @map("tenant_id")
+  agentPaused Boolean  @map("agent_paused") @default(false)
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+}
+
 // Context Memory & Customer Models
 
 model Customer {

@@ -131,6 +131,14 @@
             <div class="banner__content"><%= bannerMessage %></div>
           </div>
           <% } %>
+          <% if (agentStatus && agentStatus.paused) { %>
+          <div class="banner banner--warning">
+            <span class="banner__dot"></span>
+            <div class="banner__content">
+              Agent automation is paused. Customers will wait for a manual reply.
+            </div>
+          </div>
+          <% } %>
           <% if (bodyTemplate) { %>
           <%- include(bodyTemplate) %>
           <% } %>
