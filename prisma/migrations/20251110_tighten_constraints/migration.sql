@@ -39,7 +39,7 @@ END $$;
 ALTER TABLE "Lead"
 ALTER COLUMN customer_id SET NOT NULL;
 
-RAISE NOTICE '✓ Lead.customer_id is now NOT NULL';
+-- ✓ Lead.customer_id is now NOT NULL
 
 -- ═══════════════════════════════════════════════════════════════
 -- 2. MAKE Job.customer_id NOT NULL
@@ -48,7 +48,7 @@ RAISE NOTICE '✓ Lead.customer_id is now NOT NULL';
 ALTER TABLE "Job"
 ALTER COLUMN customer_id SET NOT NULL;
 
-RAISE NOTICE '✓ Job.customer_id is now NOT NULL';
+-- ✓ Job.customer_id is now NOT NULL
 
 -- ═══════════════════════════════════════════════════════════════
 -- VERIFICATION
@@ -88,18 +88,14 @@ END $$;
 -- ═══════════════════════════════════════════════════════════════
 -- SUMMARY
 -- ═══════════════════════════════════════════════════════════════
-
-\echo ''
-\echo '=== Batch 7 Migration Complete ==='
-\echo ''
-\echo 'Changes applied:'
-\echo '  ✓ Lead.customer_id SET NOT NULL'
-\echo '  ✓ Job.customer_id SET NOT NULL'
-\echo ''
-\echo 'Impact:'
-\echo '  - New leads MUST have customer_id'
-\echo '  - New jobs MUST have customer_id'
-\echo '  - Database enforces customer relationship'
-\echo ''
-\echo 'Next: Run validation.sql to test constraint enforcement'
-\echo ''
+--
+-- === Batch 7 Migration Complete ===
+--
+-- Changes applied:
+--   ✓ Lead.customer_id SET NOT NULL
+--   ✓ Job.customer_id SET NOT NULL
+--
+-- Impact:
+--   - New leads MUST have customer_id
+--   - New jobs MUST have customer_id
+--   - Database enforces customer relationship
