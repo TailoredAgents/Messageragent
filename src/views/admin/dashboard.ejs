@@ -64,41 +64,68 @@
   </div>
 </section>
 
-<section class="section">
-  <div class="agent-toggle-card">
-    <div class="agent-toggle-card__header">
-      <div class="agent-toggle-card__eyebrow">Automation Control</div>
-      <div class="agent-toggle-card__headline">
-        <%= agentStatus && agentStatus.paused ? 'Agent Paused' : 'Agent Running' %>
-      </div>
-      <p class="agent-toggle-card__copy">
-        Manage when the Stonegate AI handles Messenger + SMS threads. Pause to take over manually, resume to hand the queue back to automation.
-      </p>
-    </div>
-    <div class="agent-toggle-card__body">
-      <div class="agent-toggle-card__status">
-        <span class="agent-toggle-card__chip <%= agentStatus && agentStatus.paused ? 'chip--warning' : 'chip--success' %>">
-          <%= agentStatus && agentStatus.paused ? 'Paused' : 'Live' %>
-        </span>
-        <% if (agentStatus) { %>
-        <div class="agent-toggle-card__meta">
-          Updated <strong><%= agentStatus.updatedRelative %></strong> by
-          <strong><%= agentStatus.updatedBy %></strong>
+<section class="section section--automation">
+  <div class="automation-grid">
+    <article class="automation-panel card">
+      <header class="automation-panel__header">
+        <span class="automation-panel__eyebrow">Automation Control</span>
+        <div class="automation-panel__status">
+          <span class="badge badge--signal <%= agentStatus && agentStatus.paused ? 'badge--warning' : 'badge--success' %>">
+            <%= agentStatus && agentStatus.paused ? 'Agent Paused' : 'Agent Running' %>
+          </span>
+          <% if (agentStatus) { %>
+          <span class="automation-panel__meta">
+            Updated <strong><%= agentStatus.updatedRelative %></strong> by
+            <strong><%= agentStatus.updatedBy %></strong>
+          </span>
+          <% } %>
         </div>
-        <% } %>
-      </div>
-      <form class="agent-toggle-card__form" method="post" action="/admin/agent-toggle">
+      </header>
+      <p class="automation-panel__body">
+        Stonegate AI handles Messenger + SMS triage automatically. Tap the control to
+        hand conversations back to a human or spin the agent up again.
+      </p>
+      <form class="automation-panel__actions" method="post" action="/admin/agent-toggle">
         <input
           type="hidden"
           name="paused"
           value="<%= agentStatus && agentStatus.paused ? 'false' : 'true' %>"
         />
         <input type="hidden" name="actor" value="<%= adminUserLabel || 'Owner' %>" />
-        <button class="button button--primary" type="submit">
-          <%= agentStatus && agentStatus.paused ? 'Resume Agent' : 'Pause Agent' %>
+        <button
+          class="button <%= agentStatus && agentStatus.paused ? 'button--success' : 'button--danger' %>"
+          type="submit"
+        >
+          <%= agentStatus && agentStatus.paused ? 'Resume Automation' : 'Pause Automation' %>
         </button>
       </form>
-    </div>
+      <ul class="automation-panel__list">
+        <li>Messenger + SMS threads continue running while automation is live.</li>
+        <li>Pausing keeps leads in the pipeline so you can reply manually.</li>
+        <li>Audit events are logged every time this toggle changes.</li>
+      </ul>
+    </article>
+
+    <article class="automation-panel card">
+      <header class="automation-panel__header">
+        <span class="automation-panel__eyebrow">Crew Handoff Notes</span>
+        <h4 class="automation-panel__headline">Stay aligned after the quote</h4>
+      </header>
+      <p class="automation-panel__body">
+        Drop any special instructions for today’s route—access codes, staging notes,
+        or promo specifics. Everyone sees the same context.
+      </p>
+      <div class="automation-panel__notes">
+        <div>
+          <strong>Today’s focus</strong>
+          <p>Curbside FB promo leads, two same-day slots left.</p>
+        </div>
+        <div>
+          <strong>Crew reminder</strong>
+          <p>Send “On the way” text once you leave the prior stop.</p>
+        </div>
+      </div>
+    </article>
   </div>
 </section>
 
