@@ -34,6 +34,37 @@
 </section>
 
 <section class="section">
+  <div class="section__header">
+    <h3 class="section__title">Executive Metrics</h3>
+    <p class="section__subtitle">
+      Live overview of your booking health, approvals, and revenue signals.
+    </p>
+  </div>
+  <div class="metrics-grid">
+    <% metricsCards.forEach(function (card) { %>
+    <article class="metric-card metric-card--<%= card.key %>">
+      <div class="metric-card__icon"></div>
+      <div class="metric-card__labels">
+        <span class="metric-card__label"><%= card.label %></span>
+        <% if (card.hint) { %>
+        <span class="metric-card__hint"><%= card.hint %></span>
+        <% } %>
+      </div>
+      <div class="metric-card__value"><%= card.value %></div>
+      <% if (card.deltaLabel) { %>
+      <div
+        class="metric-card__delta metric-card__delta--<%= card.deltaTone || 'neutral' %>"
+      >
+        <span class="metric-card__delta-indicator"></span>
+        <span><%= card.deltaLabel %></span>
+      </div>
+      <% } %>
+    </article>
+    <% }) %>
+  </div>
+</section>
+
+<section class="section">
   <div class="agent-toggle-card">
     <div class="agent-toggle-card__header">
       <div class="agent-toggle-card__eyebrow">Automation Control</div>
@@ -68,35 +99,6 @@
         </button>
       </form>
     </div>
-  </div>
-
-  <div class="section__header">
-    <h3 class="section__title">Executive Metrics</h3>
-    <p class="section__subtitle">
-      Live overview of your booking health, approvals, and revenue signals.
-    </p>
-  </div>
-  <div class="metrics-grid">
-    <% metricsCards.forEach(function (card) { %>
-    <article class="metric-card metric-card--<%= card.key %>">
-      <div class="metric-card__icon"></div>
-      <div class="metric-card__labels">
-        <span class="metric-card__label"><%= card.label %></span>
-        <% if (card.hint) { %>
-        <span class="metric-card__hint"><%= card.hint %></span>
-        <% } %>
-      </div>
-      <div class="metric-card__value"><%= card.value %></div>
-      <% if (card.deltaLabel) { %>
-      <div
-        class="metric-card__delta metric-card__delta--<%= card.deltaTone || 'neutral' %>"
-      >
-        <span class="metric-card__delta-indicator"></span>
-        <span><%= card.deltaLabel %></span>
-      </div>
-      <% } %>
-    </article>
-    <% }) %>
   </div>
 </section>
 
