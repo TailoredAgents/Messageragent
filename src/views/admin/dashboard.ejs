@@ -71,18 +71,10 @@
   </div>
 
   <div class="section__header">
-    <div>
-      <h3 class="section__title">Executive Metrics</h3>
-      <p class="section__subtitle">
-        Live overview of your booking health, approvals, and revenue signals.
-      </p>
-    </div>
-    <div class="section__cta-group">
-      <button class="button button--ghost" type="button">Schedule Demo</button>
-      <button class="button button--primary" type="button">
-        Launch Messenger Agent
-      </button>
-    </div>
+    <h3 class="section__title">Executive Metrics</h3>
+    <p class="section__subtitle">
+      Live overview of your booking health, approvals, and revenue signals.
+    </p>
   </div>
   <div class="metrics-grid">
     <% metricsCards.forEach(function (card) { %>
@@ -105,5 +97,30 @@
       <% } %>
     </article>
     <% }) %>
+  </div>
+</section>
+
+<section class="section section--cta">
+  <div class="cta-grid">
+    <article class="cta-card">
+      <div class="cta-card__content">
+        <h4 class="cta-card__title">Show it live</h4>
+        <p class="cta-card__body">
+          Hop on a quick screen-share to walk prospects through the Stonegate AI dashboard.
+        </p>
+      </div>
+      <button class="button button--ghost" type="button">Schedule Demo</button>
+    </article>
+    <article class="cta-card">
+      <div class="cta-card__content">
+        <h4 class="cta-card__title">Deploy the agent</h4>
+        <p class="cta-card__body">
+          Launch the Messenger agent for new leads and test the full experience end to end.
+        </p>
+      </div>
+      <button class="button button--primary" type="button">
+        Launch Messenger Agent
+      </button>
+    </article>
   </div>
 </section>
