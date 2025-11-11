@@ -435,6 +435,14 @@ async function processMessengerEvent(
     attachmentsForContext = attachmentHistory;
   }
 
+  if (!textPayload) {
+    log.warn(
+      { workflow_step: 'empty_text_after_override' },
+      'Text payload became empty after context/scheduling override',
+    );
+    return;
+  }
+
   const lowerText = textPayload.toLowerCase();
   const curbsideDetected = CURBSIDE_KEYWORDS.some((keyword) =>
     lowerText.includes(keyword),

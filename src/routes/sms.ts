@@ -1329,6 +1329,15 @@ async function processSmsEvent(
   const attachmentsForContext =
     attachmentHistory.length > 0 ? attachmentHistory : attachments;
 
+  if (!textPayload) {
+    request.log.warn(
+      { workflow_step: 'empty_text_after_override' },
+      'Text payload became empty after context/scheduling override',
+    );
+    reply.type('text/xml').send('<Response></Response>');
+    return;
+  }
+
   const lowerText = textPayload.toLowerCase();
   const curbsideDetected = CURBSIDE_KEYWORDS.some((keyword) =>
     lowerText.includes(keyword),
