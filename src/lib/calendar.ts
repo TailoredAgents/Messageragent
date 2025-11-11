@@ -34,7 +34,7 @@ export async function createCalendarHold({
   const content = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//JunkQuoteAgent//EN',
+    'PRODID:-//StonegateAgent//EN',
     'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
     `UID:${jobId}@junkquote.local`,

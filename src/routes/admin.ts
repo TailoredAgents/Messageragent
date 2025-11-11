@@ -789,7 +789,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
       return reply.view('layout.ejs', {
         pageTitle: title,
         subtitle,
-        tenantLabel: process.env.TENANT_LABEL ?? 'JunkQuote Agent',
+        tenantLabel: process.env.TENANT_LABEL ?? 'Stonegate Agent',
         adminUserLabel: 'Owner',
         pendingApprovals: pendingApprovalsCount,
         extraStylesheets: [],

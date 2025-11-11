@@ -18,7 +18,7 @@ let cachedRunner: Runner | null = null;
 export function getRunner(): Runner {
   if (!cachedRunner) {
     cachedRunner = new Runner({
-      workflowName: 'JunkQuoteAgent Messenger',
+      workflowName: 'StonegateAgent Messenger',
     });
     attachToolTelemetry(cachedRunner);
   }
