@@ -10,14 +10,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const AMBIGUOUS_SCORE_DELTA = 0.05;
 
 export const ADDRESS_CONFIRM_YES = 'ADDRESS_CONFIRM_YES';
-export const ADDRESS_CONFIRM_NO = 'ADDRESS_CONFIRM_NO';
 export const ADDRESS_CONFIRM_DIFFERENT = 'ADDRESS_CONFIRM_DIFFERENT';
 
-export type ContextConfirmationChoice = 'yes' | 'no' | 'different';
+export type ContextConfirmationChoice = 'yes' | 'different';
 
 const YES_KEYWORDS = ['yes', 'y', 'yeah', 'yep', 'ya', 'sure', 'correct', 'right'];
 const NO_KEYWORDS = ['no', 'n', 'nope', 'nah'];
-const DIFFERENT_KEYWORDS = ['different', 'diff', 'another', 'not that', 'new address'];
+const DIFFERENT_KEYWORDS = ['different', 'diff', 'another', 'other', 'not that', 'new address'];
 
 type JobWithLead = Prisma.JobGetPayload<{ include: { lead: true } }>;
 type LeadRecord = Prisma.LeadGetPayload<{}>;
@@ -362,9 +361,6 @@ export function parseContextConfirmationInput(
   if (payload === ADDRESS_CONFIRM_YES) {
     return 'yes';
   }
-  if (payload === ADDRESS_CONFIRM_NO) {
-    return 'no';
-  }
   if (payload === ADDRESS_CONFIRM_DIFFERENT) {
     return 'different';
   }
@@ -378,11 +374,8 @@ export function parseContextConfirmationInput(
     return 'yes';
   }
 
-  if (NO_KEYWORDS.some((keyword) => normalized === keyword || normalized.startsWith(`${keyword} `))) {
-    return 'no';
-  }
-
   if (
+    NO_KEYWORDS.some((keyword) => normalized === keyword || normalized.startsWith(`${keyword} `)) ||
     DIFFERENT_KEYWORDS.some(
       (keyword) => normalized === keyword || normalized.includes(keyword),
     )

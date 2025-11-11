@@ -6,20 +6,33 @@ import { sendTransactionalEmail } from './email.js';
 import { prisma } from './prisma.js';
 import { getCalendarConfig } from './google-calendar.js';
 import { DateTime } from 'luxon';
+import { getLogger, maskEmail } from './log.ts';
 
 const POLL_INTERVAL_MS = 60_000;
 
 let timer: NodeJS.Timeout | null = null;
+const log = getLogger().child({ module: 'reminder_scheduler' });
 
 async function dispatchReminder(jobId: string) {
+  const start = Date.now();
   const job = await prisma.job.findUnique({
     where: { id: jobId },
     include: { lead: true },
   });
   if (!job || !job.lead?.messengerPsid) {
+    log.warn(
+      {
+        jobId,
+        hasLead: Boolean(job?.lead),
+      },
+      'Reminder dispatch skipped; missing job or messengerPsid.',
+    );
     return;
   }
-
+  const dispatchLog = log.child({
+    jobId: job.id,
+    leadId: job.lead.id,
+  });
   const cfg = getCalendarConfig();
   const tz = cfg?.timeZone ?? 'America/New_York';
   const startLocal = DateTime.fromJSDate(job.windowStart).setZone(tz);
@@ -27,10 +40,26 @@ async function dispatchReminder(jobId: string) {
   const startStr = startLocal.toFormat('h:mm a');
   const endStr = endLocal.toFormat('h:mm a');
 
+  dispatchLog.info(
+    {
+      window_start: job.windowStart.toISOString(),
+      window_end: job.windowEnd.toISOString(),
+    },
+    'Dispatching reminder.',
+  );
+
   await sendMessengerMessage({
     to: job.lead.messengerPsid,
     text: `Hi there! Reminder that we are scheduled for pickup between ${startStr} and ${endStr} tomorrow. Reply if anything changes.`,
     jitter: false,
+  }).catch((error) => {
+    dispatchLog.error(
+      {
+        err: error,
+      },
+      'Failed to send reminder via Messenger.',
+    );
+    throw error;
   });
 
   if (job.lead.email) {
@@ -60,8 +89,21 @@ async function dispatchReminder(jobId: string) {
           payload: { job_id: job.id },
         },
       });
+      dispatchLog.info(
+        {
+          email: maskEmail(job.lead.email),
+        },
+        'Reminder email sent.',
+      );
     } catch (error) {
-      console.error('Failed to send reminder email', error);
+      dispatchLog.warn(
+        {
+          err: error,
+          email: maskEmail(job.lead.email),
+          retryable: true,
+        },
+        'Failed to send reminder email; audit recorded.',
+      );
       await prisma.audit.create({
         data: {
           leadId: job.lead.id,
@@ -74,6 +116,14 @@ async function dispatchReminder(jobId: string) {
         },
       });
     }
+  } else {
+    dispatchLog.info(
+      {
+        email: null,
+        reason: 'no_email',
+      },
+      'Reminder email skipped.',
+    );
   }
 
   await prisma.job.update({
@@ -96,10 +146,21 @@ async function dispatchReminder(jobId: string) {
       payload: { job_id: job.id },
     },
   });
+
+  dispatchLog.info(
+    {
+      window_start: job.windowStart.toISOString(),
+      window_end: job.windowEnd.toISOString(),
+      duration_ms: Date.now() - start,
+    },
+    'Reminder dispatch completed.',
+  );
 }
 
 async function pollForReminders() {
   const now = new Date();
+  const start = Date.now();
+  log.info({ timestamp: now.toISOString() }, 'Reminder poll started.');
   const upcoming = await prisma.job.findMany({
     where: {
       reminderScheduledAt: { lte: now },
@@ -108,12 +169,21 @@ async function pollForReminders() {
     },
     select: { id: true, reminderScheduledAt: true },
   });
-
+  let dispatchedCount = 0;
   for (const job of upcoming) {
     if (job.reminderScheduledAt && !isAfter(job.reminderScheduledAt, now)) {
       await dispatchReminder(job.id);
+      dispatchedCount += 1;
     }
   }
+  log.info(
+    {
+      upcoming_count: upcoming.length,
+      dispatched_count: dispatchedCount,
+      duration_ms: Date.now() - start,
+    },
+    'Reminder poll completed.',
+  );
 }
 
 export function startReminderScheduler(): void {
@@ -122,9 +192,16 @@ export function startReminderScheduler(): void {
   }
   timer = setInterval(() => {
     pollForReminders().catch((error) => {
-      console.error('Reminder scheduler error', error);
+      log.error(
+        {
+          err: error,
+          retryable: true,
+        },
+        'Reminder scheduler error.',
+      );
     });
   }, POLL_INTERVAL_MS);
+  log.info({ poll_interval_ms: POLL_INTERVAL_MS }, 'Reminder scheduler started.');
 }
 
 export function stopReminderScheduler(): void {

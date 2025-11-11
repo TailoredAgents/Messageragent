@@ -31,6 +31,7 @@ import { matchSlotSelection } from '../lib/slot-selection.ts';
 import { extractProposedSlots } from '../lib/proposed-slots.ts';
 import { confirmSlotDirect } from '../tools/confirm-slot.ts';
 import { recordJobEvent } from '../tools/record-job-event.ts';
+import { expandTimeShorthand, normalizeForIntent } from '../lib/text-normalize.ts';
 import { buildBookingConfirmationText } from '../lib/booking.ts';
 import {
   buildAddressConfirmPrompt,
@@ -67,8 +68,7 @@ const CURBSIDE_KEYWORDS = ['curbside', 'driveway', 'garage', 'staged'];
 
 const SMS_CONFIRMATION_TEXT_MAP: Record<ContextConfirmationChoice, string> = {
   yes: 'Yes, that is the same address.',
-  no: 'No, that is not the same address.',
-  different: 'Different address.',
+  different: 'New address.',
 };
 
 type SmsLogger = Pick<FastifyRequest['log'], 'info' | 'warn' | 'error'>;
@@ -95,6 +95,21 @@ const SCHEDULING_KEYWORDS = [
   'availability',
   'time',
   'day',
+  // Added slang/shorthand
+  'asap',
+  'soonest',
+  'today',
+  'tonight',
+  'tomorrow',
+  'tmrw',
+  'weekend',
+  'next',
+  'morning',
+  'afternoon',
+  'evening',
+  'saturday',
+  'sunday',
+  'mon', 'tue', 'tues', 'wed', 'thu', 'thur', 'thurs', 'fri', 'sat', 'sun',
 ];
 
 const STREET_SUFFIXES = [
@@ -174,7 +189,7 @@ function buildSmsCandidateOptionsPrompt(options: ContextCandidate[]): string {
   );
   return ['I see a couple past jobs. Which one is this about?']
     .concat(lines)
-    .concat('Reply 1, 2, or “different”.')
+    .concat('Reply 1, 2, or “new address”.')
     .join('\n');
 }
 
@@ -278,7 +293,10 @@ async function handleSmsAddressCapture({
     existingMetadata: conversation.metadata,
     nextState,
   });
-  await sendSmsMessage(fromNumber, 'Thanks! I’ll use that address for this job.');
+  await sendSmsMessage(
+    fromNumber,
+    'Thanks! We’ll use that address for this job. What all needs to go so we can get pricing started?',
+  );
   return {
     contextState: nextState,
     stopProcessing: false,
@@ -1010,7 +1028,7 @@ async function handleSmsSchedulingConfirmationChoice({
 
   await sendSmsMessage(
     fromNumber,
-    'Okay! Just text me the day and time that works best and I’ll check availability.',
+    'Okay! Just text us the day and time that works best and we’ll check availability.',
   );
   conversation.metadata = await writeSchedulingState({
     conversationId: conversation.id,
@@ -1097,14 +1115,14 @@ function detectSchedulingIntent(
   if (!text) {
     return null;
   }
-  const normalized = text.toLowerCase();
+  const normalized = normalizeForIntent(text);
   const keywordHit = SCHEDULING_KEYWORDS.some((keyword) =>
     normalized.includes(keyword),
   );
   if (!keywordHit) {
     return null;
   }
-  const resolved = resolvePreferredDateTime(text, timeZone);
+  const resolved = resolvePreferredDateTime(expandTimeShorthand(text), timeZone);
   if (!resolved) {
     return null;
   }

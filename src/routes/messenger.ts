@@ -18,9 +18,9 @@ import { recordLeadAttachments } from '../lib/attachments.ts';
 import { maybeRunVisionAutomation } from '../lib/vision-automation.ts';
 import { matchSlotSelection } from '../lib/slot-selection.ts';
 import { getCalendarConfig } from '../lib/google-calendar.ts';
+import { expandTimeShorthand, normalizeForIntent } from '../lib/text-normalize.ts';
 import {
   ADDRESS_CONFIRM_DIFFERENT,
-  ADDRESS_CONFIRM_NO,
   ADDRESS_CONFIRM_YES,
   getAmbiguousContextCandidates,
   buildAddressConfirmPrompt,
@@ -49,6 +49,11 @@ import {
   type SchedulingState,
 } from '../lib/scheduling-state.ts';
 import { isAgentPaused } from '../lib/agent-state.ts';
+import {
+  maskText,
+  wrapFastifyLogger,
+  type LoggerInstance,
+} from '../lib/log.ts';
 
 type LeadWithRelations = Prisma.LeadGetPayload<{
   include: { quotes: { orderBy: { createdAt: 'desc' } } };
@@ -90,14 +95,12 @@ const PHOTO_REFERENCE_REGEX = /\b(photo|photos|pic|pics|picture|pictures|image|i
 
 const ADDRESS_CONFIRMATION_REPLIES = [
   { title: 'Yes', payload: ADDRESS_CONFIRM_YES },
-  { title: 'No', payload: ADDRESS_CONFIRM_NO },
-  { title: 'Different place', payload: ADDRESS_CONFIRM_DIFFERENT },
+  { title: 'New address', payload: ADDRESS_CONFIRM_DIFFERENT },
 ] as const;
 
 const CONFIRMATION_TEXT_MAP: Record<ContextConfirmationChoice, string> = {
   yes: 'Yes, that is the same address.',
-  no: 'No, that is not the same address.',
-  different: 'Different address.',
+  different: 'New address.',
 };
 
 const SLOT_SELECT_PREFIX = 'SLOT_SELECT|';
@@ -117,9 +120,37 @@ const SCHEDULING_KEYWORDS = [
   'availability',
   'time',
   'day',
+  // Added slang/shorthand for real-world phrasing
+  'asap',
+  'soonest',
+  'today',
+  'tonight',
+  'tomorrow',
+  'tmrw',
+  'weekend',
+  'next',
+  'morning',
+  'afternoon',
+  'evening',
+  'saturday',
+  'sunday',
+  'mon', 'tue', 'tues', 'wed', 'thu', 'thur', 'thurs', 'fri', 'sat', 'sun',
 ];
 
-type Logger = Pick<FastifyRequest['log'], 'info' | 'warn' | 'error' | 'child'>;
+const RUN_ID_PREFIX = 'messenger';
+
+function buildRunId(): string {
+  return `${RUN_ID_PREFIX}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function fingerprintPsid(psid: string): string {
+  if (!psid) {
+    return '[redacted:psid]';
+  }
+  return `[psid:***${psid.slice(-4)}]`;
+}
+
+type RouteLogger = LoggerInstance;
 
 const sanitizeText = (text: string | undefined): string | null => {
   if (!text) {
@@ -269,12 +300,25 @@ export function buildAgentInput({
   ].join('\n');
 }
 
-async function processMessengerEvent(event: MessengerEvent, log: Logger) {
+async function processMessengerEvent(
+  event: MessengerEvent,
+  options: { log: RouteLogger; requestId: string },
+) {
+  const { log: requestLog, requestId } = options;
   const psid = event.sender.id;
+  const runId = buildRunId();
+  const eventStart = Date.now();
+  const baseLog = requestLog.child({
+    channel: 'messenger',
+    requestId,
+    runId,
+    psid_fingerprint: fingerprintPsid(psid),
+  });
   const message = event.message;
   const postbackPayload = event.postback?.payload;
 
   if (!message && !postbackPayload) {
+    baseLog.warn({ workflow_step: 'ignored_event' }, 'Messenger event missing payload.');
     return;
   }
 
@@ -294,6 +338,13 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
     (attachments.length > 0 ? '[photos uploaded]' : null);
 
   if (!textPayload) {
+    baseLog.warn(
+      {
+        workflow_step: 'missing_text',
+        attachments_count: attachments.length,
+      },
+      'Messenger event ignored; no text payload.',
+    );
     return;
   }
 
@@ -304,8 +355,24 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
     leadId: lead.id,
     customerId: lead.customerId,
   });
+  const log = baseLog.child({
+    leadId: lead.id,
+    conversationId: conversation.id,
+    customerId: lead.customerId ?? undefined,
+  });
   const tenantTimeZone = getTenantTimeZone();
   const inboundContent = textPayload;
+
+  log.info(
+    {
+      workflow_step: 'inbound_received',
+      attachments_count: attachments.length,
+      has_quick_reply: Boolean(quickReplyPayload),
+      is_new_lead: isNew,
+      message_snippet: maskText(textPayload, 'message'),
+    },
+    'Messenger event received.',
+  );
 
   await recordMessengerInboundMessage({
     conversation,
@@ -358,7 +425,8 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
     attachments,
     'messenger',
   );
-  const referencesPhotos = PHOTO_REFERENCE_REGEX.test(textPayload.toLowerCase());
+  const normalizedForIntent = textPayload ? normalizeForIntent(textPayload) : '';
+  const referencesPhotos = PHOTO_REFERENCE_REGEX.test(normalizedForIntent);
   let attachmentsForContext: string[] = [];
   if (attachments.length > 0) {
     attachmentsForContext =
@@ -385,14 +453,20 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
   }
 
   const detectedAddress = maybeExtractAddress(textPayload);
-  if (detectedAddress && detectedAddress !== lead.address?.trim()) {
-    await prisma.lead.update({
-      where: { id: lead.id },
-      data: { address: detectedAddress },
-    });
-    lead.address = detectedAddress;
+  if (detectedAddress) {
+    if (detectedAddress !== lead.address?.trim()) {
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: { address: detectedAddress },
+      });
+      lead.address = detectedAddress;
+    }
     log.info(
-      { leadId: lead.id, address: detectedAddress },
+      {
+        workflow_step: 'address_capture',
+        address_detected: maskText(detectedAddress, 'address'),
+        curbside_detected: curbsideDetected,
+      },
       'Captured service address from message.',
     );
   }
@@ -418,9 +492,9 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
   if (slotMatch) {
     log.info(
       {
-        leadId: lead.id,
         slotId: slotMatch.slot.id,
         reason: slotMatch.reason,
+        workflow_step: 'slot_selection_detected',
       },
       'Detected slot selection from customer message.',
     );
@@ -494,14 +568,16 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
   const start = Date.now();
   log.info(
     {
-      leadId: lead.id,
-      psid,
-      isNewLead: isNew,
-      message: textPayload,
-      attachmentCount: attachments.length,
-      attachmentHistoryCount: attachmentsForContext.length,
+      workflow_step: 'agent_run_start',
+      is_new_lead: isNew,
+      message_snippet: maskText(textPayload, 'message'),
+      attachments_count: attachments.length,
+      attachment_history_count: attachmentsForContext.length,
+      address_detected: Boolean(detectedAddress),
+      curbside_detected: curbsideDetected,
+      duration_ms: Date.now() - eventStart,
     },
-    'Messenger event received; starting agent run.',
+    'Messenger agent run starting.',
   );
 
   void maybeRunVisionAutomation({
@@ -525,23 +601,23 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
         timeZone,
         messengerPsid: psid,
         attachments: attachmentsForContext,
+        runId,
+        requestId,
       }),
     });
     log.info(
       {
-        leadId: lead.id,
-        psid,
-        durationMs: Date.now() - start,
-        attachmentsAnalyzed: attachmentsForContext.length,
+        workflow_step: 'agent_run_end',
+        duration_ms: Date.now() - start,
+        attachments_analyzed: attachmentsForContext.length,
       },
-      'Agent run completed.',
+      'Messenger agent run completed.',
     );
   } catch (error) {
     log.error(
       {
-        leadId: lead.id,
-        psid,
-        durationMs: Date.now() - start,
+        workflow_step: 'agent_run_error',
+        duration_ms: Date.now() - start,
         err: error,
       },
       'Agent run failed',
@@ -668,13 +744,13 @@ function buildCandidateOptionsPrompt(
   );
   const text = ['Quick check: which past address is this about?']
     .concat(lines)
-    .concat('Reply 1 or 2, or tap “Different place”.')
+    .concat('Reply 1 or 2, or tap “New address”.')
     .join('\n');
   const quickReplies = options.map((candidate, index) => ({
     title: `Option ${index + 1}`,
     payload: `${ADDRESS_SELECT_PREFIX}${candidate.id}`,
   }));
-  quickReplies.push({ title: 'Different place', payload: ADDRESS_CONFIRM_DIFFERENT });
+  quickReplies.push({ title: 'New address', payload: ADDRESS_CONFIRM_DIFFERENT });
   return { text, quickReplies };
 }
 
@@ -685,7 +761,7 @@ async function sendMessengerCandidateOptionsPrompt({
 }: {
   psid: string;
   options: ContextCandidate[];
-  log: Logger;
+  log: RouteLogger;
 }): Promise<{ sent: boolean; prompt: string }> {
   const { text, quickReplies } = buildCandidateOptionsPrompt(options);
   try {
@@ -695,6 +771,15 @@ async function sendMessengerCandidateOptionsPrompt({
       quickReplies,
       jitter: false,
     });
+    log.info(
+      {
+        workflow_step: 'context_prompt_disambiguation',
+        candidate_ids: options.map((candidate) => candidate.id),
+        candidate_scores: options.map((candidate) => candidate.score),
+        prompt_snippet: maskText(text, 'prompt'),
+      },
+      'Context disambiguation prompt sent.',
+    );
     return { sent: true, prompt: text };
   } catch (error) {
     log.error({ err: error }, 'Failed to send Messenger candidate options prompt.');
@@ -718,10 +803,12 @@ async function promptMessengerForAddress({
   psid,
   conversation,
   contextState,
+  log,
 }: {
   psid: string;
   conversation: ConversationRecord;
   contextState: ContextMemoryState;
+  log: RouteLogger;
 }): Promise<ContextMemoryState> {
   const attempts = getAddressPromptAttempts(contextState);
   const example = '123 Main St, Springfield, MA';
@@ -734,6 +821,14 @@ async function promptMessengerForAddress({
     text,
     jitter: false,
   });
+  log.info(
+    {
+      workflow_step: 'address_prompt',
+      attempts: attempts + 1,
+      prompt_snippet: maskText(text, 'prompt'),
+    },
+    'Address prompt sent.',
+  );
   const nextState: ContextMemoryState = {
     ...contextState,
     awaiting_new_address: true,
@@ -767,7 +862,7 @@ async function handleMessengerAddressCapture({
   psid: string;
   conversation: ConversationRecord;
   contextState: ContextMemoryState;
-  log: Logger;
+  log: RouteLogger;
 }): Promise<{
   contextState: ContextMemoryState;
   stopProcessing: boolean;
@@ -779,6 +874,7 @@ async function handleMessengerAddressCapture({
       psid,
       conversation,
       contextState,
+      log,
     });
     return { contextState: nextState, stopProcessing: true };
   }
@@ -788,7 +884,13 @@ async function handleMessengerAddressCapture({
       data: { address: extracted },
     });
     lead.address = extracted;
-    log.info({ leadId: lead.id, address: extracted }, 'Captured address from prompt response.');
+    log.info(
+      {
+        workflow_step: 'address_capture',
+        address_detected: maskText(extracted, 'address'),
+      },
+      'Captured address from prompt response.',
+    );
   }
   const nextState: ContextMemoryState = {
     ...contextState,
@@ -803,7 +905,7 @@ async function handleMessengerAddressCapture({
   });
   await sendMessengerMessage({
     to: psid,
-    text: 'Thanks! I’ll use that address for this pickup.',
+    text: 'Thanks! We’ll use that address for this pickup. What all needs to go so we can get pricing started?',
     jitter: false,
   }).catch((error) => {
     log.warn({ err: error }, 'Failed to send Messenger address acknowledgment.');
@@ -829,7 +931,7 @@ async function maybeHandleMessengerSlotSelection({
   lead: LeadWithRelations;
   psid: string;
   timeZone: string;
-  log: Logger;
+  log: RouteLogger;
   quickReplyPayload: string | null;
   proposedSlots: ProposedSlot[];
   conversation: ConversationRecord;
@@ -937,7 +1039,7 @@ async function maybeHandleMessengerContextGating({
   messageText: string;
   quickReplyPayload: string | null;
   psid: string;
-  log: Logger;
+  log: RouteLogger;
 }): Promise<MessengerContextDecision> {
   if (
     !isContextMemoryEnabled() ||
@@ -1022,6 +1124,7 @@ async function maybeHandleMessengerContextGating({
         psid,
         conversation,
         contextState,
+        log,
       });
       return { stopProcessing: true };
     }
@@ -1034,6 +1137,7 @@ async function maybeHandleMessengerContextGating({
         psid,
         conversation,
         contextState,
+        log,
       });
       return { stopProcessing: true };
     }
@@ -1134,6 +1238,15 @@ async function maybeHandleMessengerContextGating({
   }
 
   const prompt = buildAddressConfirmPrompt(candidate);
+  log.info(
+    {
+      workflow_step: 'context_prompt_candidate',
+      candidate_id: candidate.id,
+      candidate_score: candidate.score,
+      prompt_snippet: maskText(prompt, 'prompt'),
+    },
+    'Context confirmation prompt sending.',
+  );
   const sent = await sendMessengerContextPrompt(psid, prompt, log);
   if (!sent) {
     return { stopProcessing: false };
@@ -1185,7 +1298,7 @@ async function handleContextConfirmationChoice({
   candidateId: string;
   conversation: ConversationRecord;
   contextState: ContextMemoryState;
-  log: Logger;
+  log: RouteLogger;
 }): Promise<ContextMemoryState> {
   const baseState: ContextMemoryState = {
     ...contextState,
@@ -1283,7 +1396,7 @@ async function findNextContextCandidate({
   customerId: string;
   messageText: string;
   contextState: ContextMemoryState;
-  log: Logger;
+  log: RouteLogger;
 }): Promise<CandidateSearchResult> {
   try {
     const candidates = await fetchContextCandidates(customerId, messageText, 5);
@@ -1334,7 +1447,7 @@ function getContextBasis(contextState: ContextMemoryState): string | undefined {
 async function sendMessengerContextPrompt(
   psid: string,
   text: string,
-  log: Logger,
+  log: RouteLogger,
 ): Promise<boolean> {
   try {
     await sendMessengerMessage({
@@ -1357,7 +1470,7 @@ async function maybeCreateJobFromCandidate({
 }: {
   lead: LeadWithRelations;
   candidateSnapshotJson: string | null | undefined;
-  log: Logger;
+  log: RouteLogger;
 }): Promise<string | null> {
   if (!candidateSnapshotJson || !lead.customerId) {
     return null;
@@ -1427,7 +1540,7 @@ async function maybeHandleMessengerScheduling({
   quickReplyPayload: string | null;
   psid: string;
   timeZone: string;
-  log: Logger;
+  log: RouteLogger;
 }): Promise<MessengerSchedulingDecision> {
   const schedulingState = readSchedulingState(conversation.metadata);
   const pendingConfirmation = schedulingState.pending_confirmation ?? null;
@@ -1461,12 +1574,15 @@ async function maybeHandleMessengerScheduling({
     }
   }
 
-  const schedulingIntent = detectSchedulingIntent(messageText, timeZone);
+  const schedulingIntent = detectSchedulingIntent(
+    textPayload ? expandTimeShorthand(textPayload) : messageText,
+    timeZone,
+  );
   if (!schedulingIntent) {
     return { stopProcessing: false };
   }
 
-  const prompt = `Want me to line up pickup windows for ${schedulingIntent.label}?`;
+  const prompt = `Want us to line up pickup windows for ${schedulingIntent.label}?`;
   await sendMessengerMessage({
     to: psid,
     text: prompt,
@@ -1516,7 +1632,7 @@ async function handleSchedulingConfirmationChoice({
   pendingConfirmation: NonNullable<SchedulingState['pending_confirmation']>;
   psid: string;
   timeZone: string;
-  log: Logger;
+  log: RouteLogger;
 }): Promise<MessengerSchedulingDecision> {
   const baseState: SchedulingState = {
     ...schedulingState,
@@ -1552,7 +1668,7 @@ async function handleSchedulingConfirmationChoice({
 
   await sendMessengerMessage({
     to: psid,
-    text: 'Okay! Just share the day and time you prefer, and I’ll check availability.',
+    text: 'Okay! Just share the day and time you prefer, and we’ll check availability.',
     jitter: false,
   });
   conversation.metadata = await writeSchedulingState({
@@ -1580,7 +1696,7 @@ async function sendMessengerSlotsForDate({
   psid: string;
   timeZone: string;
   schedulingState: SchedulingState;
-  log: Logger;
+  log: RouteLogger;
 }): Promise<boolean> {
   try {
     const result = await proposeSlotsDirect({
@@ -1678,14 +1794,14 @@ function detectSchedulingIntent(
   if (!text) {
     return null;
   }
-  const normalized = text.toLowerCase();
+  const normalized = normalizeForIntent(text);
   const keywordHit = SCHEDULING_KEYWORDS.some((keyword) =>
     normalized.includes(keyword),
   );
   if (!keywordHit) {
     return null;
   }
-  const resolved = resolvePreferredDateTime(text, timeZone);
+  const resolved = resolvePreferredDateTime(expandTimeShorthand(text), timeZone);
   if (!resolved) {
     return null;
   }
@@ -1784,11 +1900,16 @@ async function handleMessengerPost(
 
   // Process asynchronously so webhook returns fast and we can add human-like
   // delays before replying without risking Facebook timeouts.
+  const requestLog = wrapFastifyLogger(request.log).child({
+    channel: 'messenger',
+    requestId: request.id,
+  });
+
   for (const event of events) {
     // Fire and forget with error logging.
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    processMessengerEvent(event, request.log).catch((error) => {
-      request.log.error({ err: error }, 'Messenger event processing failed');
+    processMessengerEvent(event, { log: requestLog, requestId: request.id }).catch((error) => {
+      requestLog.error({ err: error }, 'Messenger event processing failed');
     });
   }
 

@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import process from 'node:process';
+import { getLogger, maskEmail, maskText } from './log.ts';
 
 type EmailConfig = {
   host: string;
@@ -21,6 +22,7 @@ type EmailPayload = {
 
 let cachedConfig: EmailConfig | null | undefined;
 let transporterPromise: Promise<Transporter> | null = null;
+const log = getLogger().child({ module: 'email' });
 
 const getEmailConfig = (): EmailConfig | null => {
   if (cachedConfig !== undefined) {
@@ -35,7 +37,13 @@ const getEmailConfig = (): EmailConfig | null => {
   const bcc = process.env.EMAIL_BCC;
 
   if (!host || Number.isNaN(port) || !username || !password || !from) {
-    console.warn(
+    log.warn(
+      {
+        host_present: Boolean(host),
+        port_present: !Number.isNaN(port),
+        username_present: Boolean(username),
+        from_present: Boolean(from),
+      },
       'Email credentials missing; transactional emails will be skipped.',
     );
     cachedConfig = null;
@@ -82,12 +90,20 @@ export async function sendTransactionalEmail(
 ): Promise<void> {
   const config = getEmailConfig();
   if (!config) {
-    console.info(
-      'Email send skipped because SMTP credentials are not configured.',
+    log.info(
+      {
+        reason: 'missing_credentials',
+        to: maskEmail(payload.to),
+        subject: maskText(payload.subject, 'subject'),
+      },
+      'Transactional email send skipped.',
     );
-    console.debug(payload);
     return;
   }
+
+  const childLog = log.child({
+    to: maskEmail(payload.to),
+  });
 
   try {
     const transporter = await getTransporter();
@@ -98,10 +114,22 @@ export async function sendTransactionalEmail(
       text: payload.text,
       html: payload.html,
       bcc: payload.bcc ?? config.bcc,
-    });
+      });
+    childLog.info(
+      {
+        subject: maskText(payload.subject, 'subject'),
+        has_html: Boolean(payload.html),
+      },
+      'Transactional email sent.',
+    );
   } catch (error) {
-    console.error('Failed to send transactional email', error);
+    childLog.error(
+      {
+        err: error,
+        subject: maskText(payload.subject, 'subject'),
+      },
+      'Failed to send transactional email.',
+    );
     throw error;
   }
 }
-

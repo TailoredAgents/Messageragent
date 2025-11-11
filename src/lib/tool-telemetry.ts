@@ -1,6 +1,7 @@
 import type { Runner } from '@openai/agents';
+import { getLogger, type LoggerInstance } from './log.ts';
 
-type ToolTelemetryLogger = Pick<Console, 'info' | 'warn' | 'error'>;
+type ToolTelemetryLogger = Pick<LoggerInstance, 'info' | 'warn' | 'error'>;
 
 type ToolInvocationState = {
   callId: string;
@@ -58,7 +59,7 @@ export function attachToolTelemetry(
   runnerWithFlag[RUNNER_TELEMETRY_FLAG] = true;
 
   const activeCalls = new Map<string, ToolInvocationState>();
-  const log = buildLogger(logger ?? console);
+  const log = buildLogger(logger ?? getLogger());
 
   runner.on('agent_tool_start', (runContext, agent, tool, details) => {
     const callId = resolveToolCallId(details.toolCall);
@@ -137,7 +138,7 @@ function buildLogger(logger: ToolTelemetryLogger) {
       logger[level](entry);
       return;
     }
-    console.log(entry);
+    getLogger()[level](entry);
   };
 
   return {

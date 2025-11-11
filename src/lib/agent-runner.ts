@@ -11,6 +11,8 @@ export type AgentRunContext = {
   messengerPsid?: string;
   smsFrom?: string;
   attachments?: string[];
+  runId?: string;
+  requestId?: string;
 };
 
 let cachedRunner: Runner | null = null;

@@ -1,15 +1,22 @@
 import { createHash } from 'node:crypto';
+import { getLogger, maskText, type LoggerInstance } from '../lib/log.ts';
 
 const GRAPH_API_VERSION = process.env.FB_GRAPH_VERSION ?? 'v17.0';
 const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 
 let tokenFingerprintLogged = false;
+const baseLog = getLogger().child({ module: 'messenger_adapter' });
 
-function getTokenFingerprint(token: string | undefined): string {
+function fingerprintToken(token: string | undefined): string {
   if (!token) {
     return '[missing]';
   }
   const hash = createHash('sha256').update(token).digest('hex');
+  return `${hash.slice(0, 6)}…${hash.slice(-4)}`;
+}
+
+function fingerprintRecipient(id: string): string {
+  const hash = createHash('sha256').update(id).digest('hex');
   return `${hash.slice(0, 6)}…${hash.slice(-4)}`;
 }
 
@@ -35,11 +42,13 @@ async function sendSenderAction({
   recipientId,
   accessToken,
   pageId,
+  log,
 }: {
   action: 'typing_on' | 'typing_off';
   recipientId: string;
   accessToken: string;
   pageId: string;
+  log: LoggerInstance;
 }): Promise<void> {
   const endpoint = `${GRAPH_BASE_URL}/${pageId}/messages?access_token=${encodeURIComponent(accessToken)}`;
   const response = await fetch(endpoint, {
@@ -54,8 +63,13 @@ async function sendSenderAction({
   });
   if (!response.ok) {
     const detail = await response.text();
-    console.warn(
-      `[Messenger] Failed to send sender_action=${action}: ${response.status} ${response.statusText} ${detail}`,
+    log.warn(
+      {
+        status: response.status,
+        statusText: response.statusText,
+        detail: maskText(detail, 'sender_action_error'),
+      },
+      'Messenger typing indicator failed',
     );
   }
 }
@@ -63,12 +77,25 @@ async function sendSenderAction({
 export async function sendMessengerMessage(
   options: MessengerSendOptions,
 ): Promise<void> {
+  const childLog = baseLog.child({
+    channel: 'messenger',
+    to_fingerprint: fingerprintRecipient(options.to),
+    quick_replies_count: options.quickReplies?.length ?? 0,
+    attachments_count: options.attachments?.length ?? 0,
+  });
+
   const enableSends = String(process.env.ENABLE_MESSENGER_SEND ?? 'true')
     .toLowerCase()
     .trim();
   if (['0', 'false', 'no', 'off'].includes(enableSends)) {
-    console.info('Messenger send disabled via ENABLE_MESSENGER_SEND; message logged instead.');
-    console.info(options);
+    childLog.info(
+      {
+        reason: 'disabled_env',
+        text_snippet: options.text ? maskText(options.text, 'text') : undefined,
+        attachments_count: options.attachments?.length ?? 0,
+      },
+      'Messenger send skipped.',
+    );
     return;
   }
 
@@ -76,21 +103,31 @@ export async function sendMessengerMessage(
   const pageId = process.env.FB_PAGE_ID;
 
   if (!accessToken || !pageId) {
-    console.warn('Messenger credentials missing; message logged instead.');
-    console.info(options);
+    childLog.warn(
+      {
+        reason: 'missing_credentials',
+        text_snippet: options.text ? maskText(options.text, 'text') : undefined,
+        attachments_count: options.attachments?.length ?? 0,
+      },
+      'Messenger send skipped.',
+    );
     return;
   }
 
   if (!tokenFingerprintLogged) {
     tokenFingerprintLogged = true;
-    console.info('[Messenger] Using page token', {
-      pageId,
-      tokenHash: getTokenFingerprint(accessToken),
-    });
+    childLog.info(
+      {
+        pageId,
+        token_hash: fingerprintToken(accessToken),
+      },
+      'Messenger credentials loaded.',
+    );
   }
 
   const wantJitter = options.jitter ?? true;
   const typingEnabled = typingIndicatorsEnabled();
+  const typingStatus = typingEnabled && wantJitter ? 'attempted' : 'skipped';
 
   if (typingEnabled && wantJitter) {
     try {
@@ -99,9 +136,10 @@ export async function sendMessengerMessage(
         recipientId: options.to,
         accessToken,
         pageId,
+        log: childLog,
       });
     } catch (error) {
-      console.warn('[Messenger] Failed to send typing indicator', error);
+      childLog.warn({ err: error }, 'Messenger typing_on failed');
     }
   }
 
@@ -147,6 +185,7 @@ export async function sendMessengerMessage(
   }
 
   body.message = message;
+  const sendStart = Date.now();
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -158,8 +197,19 @@ export async function sendMessengerMessage(
 
   if (!response.ok) {
     const detail = await response.text();
+    childLog.error(
+      {
+        status: response.status,
+        statusText: response.statusText,
+        duration_ms: Date.now() - sendStart,
+        typing_indicator: typingStatus,
+        detail: maskText(detail, 'messenger_error'),
+        attachments_count: options.attachments?.length ?? 0,
+      },
+      'Messenger send failed.',
+    );
     throw new Error(
-      `Failed to send Messenger message: ${response.status} ${response.statusText} ${detail}`,
+      `Failed to send Messenger message: ${response.status} ${response.statusText}`,
     );
   }
 
@@ -169,8 +219,20 @@ export async function sendMessengerMessage(
       recipientId: options.to,
       accessToken,
       pageId,
+      log: childLog,
     }).catch((error) => {
-      console.warn('[Messenger] Failed to send typing_off indicator', error);
+      childLog.warn({ err: error }, 'Messenger typing_off failed');
     });
   }
+
+  childLog.info(
+    {
+      duration_ms: Date.now() - sendStart,
+      typing_indicator: typingStatus,
+      text_snippet: options.text ? maskText(options.text, 'text') : undefined,
+      attachments_count: options.attachments?.length ?? 0,
+      attachment_type: options.attachments?.[0]?.type,
+    },
+    'Messenger send ok.',
+  );
 }

@@ -1,12 +1,20 @@
 import Twilio from 'twilio';
+import { getLogger, maskPhone } from '../lib/log.ts';
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
 const fromNumber = process.env.TWILIO_FROM_NUMBER;
 
+const baseLog = getLogger().child({ module: 'twilio_adapter', channel: 'sms' });
+
 if ((accountSid || authToken || fromNumber) && (!accountSid || !authToken || !fromNumber)) {
-  console.warn(
-    'Twilio environment variables are partially set. Ensure TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER are all defined.',
+  baseLog.warn(
+    {
+      accountSid: accountSid ? '[present]' : '[missing]',
+      authToken: authToken ? '[present]' : '[missing]',
+      fromConfigured: Boolean(fromNumber),
+    },
+    'Twilio env variables partially set.',
   );
 }
 
@@ -18,11 +26,38 @@ export async function sendSmsMessage(to: string, body: string): Promise<void> {
     throw new Error('Twilio client not configured.');
   }
 
-  await twilioClient.messages.create({
-    body,
-    from: fromNumber,
-    to,
+  const childLog = baseLog.child({
+    to_fingerprint: maskPhone(to) ?? '[redacted:phone]',
+    from_fingerprint: maskPhone(fromNumber) ?? '[redacted:phone]',
   });
+  const sendStart = Date.now();
+
+  try {
+    const message = await twilioClient.messages.create({
+      body,
+      from: fromNumber,
+      to,
+    });
+    childLog.info(
+      {
+        body_length: body.length,
+        sid: message.sid,
+        status: message.status,
+        duration_ms: Date.now() - sendStart,
+      },
+      'Twilio SMS sent.',
+    );
+  } catch (error) {
+    childLog.error(
+      {
+        err: error,
+        body_length: body.length,
+        duration_ms: Date.now() - sendStart,
+      },
+      'Twilio SMS send failed.',
+    );
+    throw error;
+  }
 }
 
 export function validateTwilioSignature({

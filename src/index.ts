@@ -14,10 +14,11 @@ import { adminRoutes } from './routes/admin.ts';
 import { messengerRoutes } from './routes/messenger.ts';
 import { startReminderScheduler } from './lib/reminder-scheduler.ts';
 import { smsRoutes } from './routes/sms.ts';
+import { getRawLogger } from './lib/log.ts';
 
 async function main(): Promise<void> {
   const server = fastify({
-    logger: true,
+    logger: getRawLogger(),
   });
 
   server.register(fastifyView, {

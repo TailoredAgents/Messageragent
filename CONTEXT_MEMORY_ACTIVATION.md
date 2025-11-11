@@ -85,10 +85,10 @@ Before quoting or scheduling, Austin will now:
 2. **Ask for confirmation if found**: "Quick check: is this the same address at {ADDRESS} from {DATE}?"
 3. **Present quick reply buttons**:
    - ✅ "Yes, same address"
-   - ❌ "No, different address"
-   - 🔄 "It's changed"
+   - 🆕 "New address"
+   > “New address” covers customers replying with “no,” “different,” or anything similar.
 4. **Only reuse after confirmation**: Calls `memory_confirm_context` to mark the candidate as confirmed
-5. **Update if needed**: On "No" or "Different", asks for the correct address and continues fresh
+5. **Update if needed**: On "New address" (or equivalent wording), asks for the correct address and continues fresh
 
 ---
 
@@ -107,7 +107,7 @@ Austin: "Great—Woodstock works. Is everything in the driveway or inside?"
 ```
 Customer: "How much to remove some furniture?"
 Austin: "Quick check: is this the same address at 123 Oak St, Woodstock from Oct 15?"
-[Quick replies: Yes | No | It's changed]
+[Quick replies: Yes | New address]
 
 Customer: [Taps "Yes"]
 Austin: "Got it—using 123 Oak St. Last time was the sectional pickup. What needs to go this time?"
@@ -318,7 +318,7 @@ CONTEXT_MEMORY_ENABLED: "false"
 **Test 2: Returning Customer (Same Address)**
 1. Message again from same Facebook account
 2. Verify: Agent asks "Quick check: is this the same address at 123 Oak St from [DATE]?"
-3. Verify: Quick reply buttons present (Yes | No | It's changed)
+3. Verify: Quick reply buttons present (Yes | New address)
 4. Tap "Yes"
 5. Verify: Agent skips city/access questions
 6. Check database: New conversation created, old one closed
@@ -326,7 +326,7 @@ CONTEXT_MEMORY_ENABLED: "false"
 **Test 3: Returning Customer (Different Address)**
 1. Message from same Facebook account
 2. Verify: Agent asks about previous address
-3. Tap "No, different address"
+3. Tap "New address"
 4. Provide new address: "456 Pine Ave, Woodstock"
 5. Verify: Agent asks for access details (fresh flow)
 6. Check database: New address added, both addresses preserved

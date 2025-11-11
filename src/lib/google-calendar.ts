@@ -1,5 +1,6 @@
 import process from 'node:process';
 import { DateTime } from 'luxon';
+import { getLogger, maskText } from './log.ts';
 
 type AccessTokenState = {
   token: string;
@@ -7,6 +8,7 @@ type AccessTokenState = {
 };
 
 let cachedToken: AccessTokenState | null = null;
+const log = getLogger().child({ module: 'google_calendar' });
 
 function getEnv(name: string): string | undefined {
   const value = process.env[name];
@@ -18,6 +20,14 @@ async function refreshAccessToken(): Promise<AccessTokenState> {
   const clientSecret = getEnv('GOOGLE_CLIENT_SECRET');
   const refreshToken = getEnv('GOOGLE_REFRESH_TOKEN');
   if (!clientId || !clientSecret || !refreshToken) {
+    log.error(
+      {
+        clientId: Boolean(clientId),
+        clientSecret: Boolean(clientSecret),
+        refreshToken: Boolean(refreshToken),
+      },
+      'Google OAuth env missing.',
+    );
     throw new Error('Google OAuth env missing (client id/secret/refresh token).');
   }
 
@@ -28,6 +38,7 @@ async function refreshAccessToken(): Promise<AccessTokenState> {
     grant_type: 'refresh_token',
   });
 
+  const refreshStart = Date.now();
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -36,6 +47,15 @@ async function refreshAccessToken(): Promise<AccessTokenState> {
 
   if (!res.ok) {
     const detail = await res.text();
+    log.error(
+      {
+        status: res.status,
+        statusText: res.statusText,
+        duration_ms: Date.now() - refreshStart,
+        detail: maskText(detail, 'google_token_error'),
+      },
+      'Google token refresh failed.',
+    );
     throw new Error(
       `Google token refresh failed: ${res.status} ${res.statusText} ${detail}`,
     );
@@ -48,6 +68,13 @@ async function refreshAccessToken(): Promise<AccessTokenState> {
     expiresAt: Date.now() + (expiresIn - 60) * 1000,
   };
   cachedToken = state;
+  log.info(
+    {
+      expires_in: expiresIn,
+      duration_ms: Date.now() - refreshStart,
+    },
+    'Google token refreshed.',
+  );
   return state;
 }
 
@@ -82,6 +109,7 @@ export async function queryFreeBusy(
   timeZone: string,
 ): Promise<BusyWindow[]> {
   const token = await getAccessToken();
+  const start = Date.now();
   const res = await fetch('https://www.googleapis.com/calendar/v3/freeBusy', {
     method: 'POST',
     headers: {
@@ -93,13 +121,34 @@ export async function queryFreeBusy(
 
   if (!res.ok) {
     const detail = await res.text();
+    log.error(
+      {
+        status: res.status,
+        statusText: res.statusText,
+        duration_ms: Date.now() - start,
+        timeMinIso,
+        timeMaxIso,
+        detail: maskText(detail, 'freebusy_error'),
+      },
+      'Google freeBusy failed.',
+    );
     throw new Error(`Google freeBusy failed: ${res.status} ${res.statusText} ${detail}`);
   }
 
   const json = (await res.json()) as {
     calendars: Record<string, { busy?: Array<{ start: string; end: string }> }>;
   };
-  return json.calendars?.[calendarId]?.busy ?? [];
+  const busy = json.calendars?.[calendarId]?.busy ?? [];
+  log.info(
+    {
+      timeMinIso,
+      timeMaxIso,
+      busy_count: busy.length,
+      duration_ms: Date.now() - start,
+    },
+    'Google freeBusy completed.',
+  );
+  return busy;
 }
 
 export async function isWindowFree(
@@ -108,17 +157,38 @@ export async function isWindowFree(
   calendarId: string,
   timeZone: string,
 ): Promise<boolean> {
+  const start = Date.now();
   const busy = await queryFreeBusy(timeMinIso, timeMaxIso, calendarId, timeZone);
   if (busy.length === 0) {
+    log.info(
+      {
+        timeMinIso,
+        timeMaxIso,
+        busy_count: 0,
+        duration_ms: Date.now() - start,
+      },
+      'Calendar window free.',
+    );
     return true;
   }
   const desiredStart = DateTime.fromISO(timeMinIso, { zone: 'utc' });
   const desiredEnd = DateTime.fromISO(timeMaxIso, { zone: 'utc' });
-  return busy.every((slot) => {
+  const isFree = busy.every((slot) => {
     const busyStart = DateTime.fromISO(slot.start, { zone: 'utc' });
     const busyEnd = DateTime.fromISO(slot.end, { zone: 'utc' });
     return desiredEnd <= busyStart || desiredStart >= busyEnd;
   });
+  log.info(
+    {
+      timeMinIso,
+      timeMaxIso,
+      busy_count: busy.length,
+      is_free: isFree,
+      duration_ms: Date.now() - start,
+    },
+    'Calendar window evaluated.',
+  );
+  return isFree;
 }
 
 type CalendarEventInput = {
@@ -181,6 +251,7 @@ export async function upsertCalendarEvent(
     return res;
   };
 
+  const start = Date.now();
   let res = await attemptInsert();
   if (res.status === 409 && eventId) {
     // Already exists — update instead.
@@ -193,6 +264,16 @@ export async function upsertCalendarEvent(
 
   if (!res.ok) {
     const detail = await res.text();
+    log.error(
+      {
+        status: res.status,
+        statusText: res.statusText,
+        duration_ms: Date.now() - start,
+        eventId: eventId ?? '[new]',
+        detail: maskText(detail, 'google_event_error'),
+      },
+      'Google event upsert failed.',
+    );
     throw new Error(
       `Google event upsert failed: ${res.status} ${res.statusText} ${detail}`,
     );
@@ -205,10 +286,19 @@ export async function upsertCalendarEvent(
     etag?: string;
   };
 
-  return {
+  const payload = {
     id: event.id,
     htmlLink: event.htmlLink,
     iCalUID: event.iCalUID,
     etag: event.etag,
   };
+  log.info(
+    {
+      eventId: payload.id,
+      duration_ms: Date.now() - start,
+      mode: eventId ? 'patch' : 'insert',
+    },
+    'Google event upserted.',
+  );
+  return payload;
 }
