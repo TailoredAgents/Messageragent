@@ -4,7 +4,7 @@
     "mode": "radius_plus_counties",
     "center": { "lat": 34.1016, "lng": -84.5194 },
     "radius_miles": 30,
-    "allowed_counties": ["Cobb", "Cherokee", "Fulton"],
+    "allowed_counties": ["Cherokee", "Cobb", "Bartow", "Fulton", "Gwinnett"],
     "travel_baseline_miles": 20,
     "travel_excess_rate_per_mile": 2.5
   },
@@ -16,40 +16,42 @@
     "hazard_keywords": ["needles","chemicals","paint spill","asbestos","biohazard"]
   },
   "pricebook": {
-    "trailer": { "cubic_yards": 16.6, "label": "16-yard trailer" },
-    "min_job": 149,
-    "curbside_min_job": 99,
-    "curbside_discount_pct": 10,
+    "trailer": { "cubic_yards": 16.6, "label": "16-yard dumpster trailer" },
+    "min_job": 150,
+    "curbside_min_job": 119,
+    "curbside_discount_pct": 25,
     "volume_tiers": [
-      { "name": "minimum", "yd3": 1.5, "full_service": 149 },
-      { "name": "1/8", "yd3": 2.1, "full_service": 199 },
-      { "name": "1/4", "yd3": 4.1, "full_service": 299 },
-      { "name": "3/8", "yd3": 6.2, "full_service": 389 },
-      { "name": "1/2", "yd3": 8.3, "full_service": 429 },
-      { "name": "5/8", "yd3": 10.4, "full_service": 474 },
-      { "name": "3/4", "yd3": 12.4, "full_service": 549 },
-      { "name": "7/8", "yd3": 14.5, "full_service": 609 },
-      { "name": "full", "yd3": 16.6, "full_service": 649 }
+      { "name": "minimum", "yd3": 1.5, "full_service": 150 },
+      { "name": "1/8", "yd3": 2.1, "full_service": 189 },
+      { "name": "1/4", "yd3": 4.1, "full_service": 259 },
+      { "name": "3/8", "yd3": 6.2, "full_service": 377 },
+      { "name": "1/2", "yd3": 8.3, "full_service": 495 },
+      { "name": "5/8", "yd3": 10.4, "full_service": 567 },
+      { "name": "3/4", "yd3": 12.4, "full_service": 639 },
+      { "name": "7/8", "yd3": 14.5, "full_service": 729 },
+      { "name": "full", "yd3": 16.6, "full_service": 819 }
     ],
     "weight_policy": { "included_full_load_lb": 2000, "overage_step_lb": 500, "overage_price_per_step": 50 },
     "bedload": {
-      "concrete_brick_tile": { "rate_per_cy": 250, "max_cy_per_trip": 2 },
-      "dirt_soil_rocks":   { "rate_per_cy": 150, "max_cy_per_trip": 3 },
-      "roofing_shingles":  { "rate_per_cy": 225, "max_cy_per_trip": 3 }
+      "concrete_tile_pavers": { "rate_per_cy": 204, "max_cy_per_trip": 4 },
+      "clean_dirt":   { "rate_per_cy": 180, "max_cy_per_trip": 4 }
     },
     "surcharges": {
-      "stairs_per_flight": 25,
-      "long_carry_per_50ft": 25,
+      "stairs_per_flight": 30,
+      "long_carry_per_50ft": 30,
       "extra_labor_per_quarter_hour_per_person": 20,
       "same_day_priority": 50,
       "tight_window_priority": 50
     },
     "regulated_items": {
-      "mattress": 20,
-      "appliance_freon": 20,
-      "flat_screen_tv": 20,
-      "paint_gallon": 5,
-      "paint_5gal": 15
+      "mattress_box": 24,
+      "fridge_ac": 48,
+      "monitor_tv": 14,
+      "tire": 12,
+      "paint_gallon": 10,
+      "paint_5gal": 50,
+      "propane": 15,
+      "ppe_hazard": 150
     },
     "contamination_fee": 60
   }
