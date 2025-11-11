@@ -55,7 +55,7 @@ const stageMeta: Record<
     caption: 'Collect address and at least one photo set.',
     tone: 'warm',
     nextAction: 'Send photo reminder with quick replies.',
-    trend: 'Focus: confirm curbside for 10% off.',
+    trend: 'Confirm FB ad (25% off) or curbside (10% off).',
   },
   clarifying: {
     label: 'Clarifying Details',
