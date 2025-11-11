@@ -35,31 +35,39 @@
 
 <section class="section">
   <div class="agent-toggle-card">
-    <div
-      class="agent-toggle-card__status <%= agentStatus && agentStatus.paused ? 'is-paused' : 'is-running' %>"
-    >
-      <div class="agent-toggle-card__label">Automation Status</div>
-      <div class="agent-toggle-card__value">
+    <div class="agent-toggle-card__header">
+      <div class="agent-toggle-card__eyebrow">Automation Control</div>
+      <div class="agent-toggle-card__headline">
         <%= agentStatus && agentStatus.paused ? 'Agent Paused' : 'Agent Running' %>
       </div>
-      <% if (agentStatus) { %>
-      <div class="agent-toggle-card__meta">
-        Updated <%= agentStatus.updatedRelative %> by
-        <%= agentStatus.updatedBy %>
-      </div>
-      <% } %>
+      <p class="agent-toggle-card__copy">
+        Manage when the Stonegate AI handles Messenger + SMS threads. Pause to take over manually, resume to hand the queue back to automation.
+      </p>
     </div>
-    <form class="agent-toggle-card__form" method="post" action="/admin/agent-toggle">
-      <input
-        type="hidden"
-        name="paused"
-        value="<%= agentStatus && agentStatus.paused ? 'false' : 'true' %>"
-      />
-      <input type="hidden" name="actor" value="<%= adminUserLabel || 'Owner' %>" />
-      <button class="button button--primary" type="submit">
-        <%= agentStatus && agentStatus.paused ? 'Resume Agent' : 'Pause Agent' %>
-      </button>
-    </form>
+    <div class="agent-toggle-card__body">
+      <div class="agent-toggle-card__status">
+        <span class="agent-toggle-card__chip <%= agentStatus && agentStatus.paused ? 'chip--warning' : 'chip--success' %>">
+          <%= agentStatus && agentStatus.paused ? 'Paused' : 'Live' %>
+        </span>
+        <% if (agentStatus) { %>
+        <div class="agent-toggle-card__meta">
+          Updated <strong><%= agentStatus.updatedRelative %></strong> by
+          <strong><%= agentStatus.updatedBy %></strong>
+        </div>
+        <% } %>
+      </div>
+      <form class="agent-toggle-card__form" method="post" action="/admin/agent-toggle">
+        <input
+          type="hidden"
+          name="paused"
+          value="<%= agentStatus && agentStatus.paused ? 'false' : 'true' %>"
+        />
+        <input type="hidden" name="actor" value="<%= adminUserLabel || 'Owner' %>" />
+        <button class="button button--primary" type="submit">
+          <%= agentStatus && agentStatus.paused ? 'Resume Agent' : 'Pause Agent' %>
+        </button>
+      </form>
+    </div>
   </div>
 
   <div class="section__header">
