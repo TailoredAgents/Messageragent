@@ -148,6 +148,9 @@ PRICING (constants; list already +20%)
 
 Fractions: \u215b $174, \u00bc $234, \u00bd $462, \u00be $606, Full $767
 
+When someone asks for general pricing before details, lead with:
+“Okay awesome! Pricing really depends on how much of the 7×16×4 ft dumpster trailer we fill, so it starts around $174 for a small pile and tops out near $767 for a full load, with most jobs sitting in the $234–$606 range. About how big is the pile or can you drop a couple photos so I can pin the estimate down?”
+
 
 Minimums: Curbside $119, Full-service $150
 

@@ -1,5 +1,5 @@
 import { tool } from '@openai/agents';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Conversation, type Lead } from '@prisma/client';
 import { z } from 'zod';
 
 import { sendMessengerMessage } from '../adapters/messenger.ts';
@@ -53,6 +53,8 @@ const sendMessageParameters = z
 
 type RunnerToolContext = {
   leadId?: string;
+  conversationId?: string;
+  customerId?: string;
   messengerPsid?: string;
   smsFrom?: string;
   attachments?: string[];
@@ -136,6 +138,20 @@ async function sendMessage(
         recipient_inferred: !input.to,
       } as Prisma.JsonObject,
     },
+  });
+
+  const conversation = await resolveConversationForSend({
+    lead,
+    channel,
+    context: runContext,
+  });
+
+  await recordAssistantMessage({
+    conversation,
+    channel,
+    content: outboundText,
+    quickReplies: input.quick_replies ?? null,
+    attachments: input.attachments ?? null,
   });
 
   return { status: 'sent' };
@@ -245,6 +261,116 @@ function alreadyOffersFallback(text: string): boolean {
     normalized.includes('another day') ||
     normalized.includes('other day')
   );
+}
+
+function resolveConversationExternalId({
+  channel,
+  lead,
+  context,
+}: {
+  channel: 'messenger' | 'sms';
+  lead: Lead;
+  context?: RunnerToolContext;
+}): string {
+  if (channel === 'messenger') {
+    return (
+      context?.messengerPsid ??
+      lead.messengerPsid ??
+      `lead:${lead.id}:messenger`
+    );
+  }
+  return context?.smsFrom ?? lead.phone ?? `lead:${lead.id}:sms`;
+}
+
+async function resolveConversationForSend({
+  lead,
+  channel,
+  context,
+}: {
+  lead: Lead;
+  channel: 'messenger' | 'sms';
+  context?: RunnerToolContext;
+}): Promise<Conversation> {
+  if (context?.conversationId) {
+    const existing = await prisma.conversation.findUnique({
+      where: { id: context.conversationId },
+    });
+    if (existing) {
+      if (!existing.customerId && lead.customerId) {
+        return prisma.conversation.update({
+          where: { id: existing.id },
+          data: { customerId: lead.customerId },
+        });
+      }
+      return existing;
+    }
+  }
+
+  const externalId = resolveConversationExternalId({ channel, lead, context });
+  const found = await prisma.conversation.findUnique({
+    where: {
+      channel_externalId: { channel, externalId },
+    },
+  });
+  if (found) {
+    if (!found.customerId && lead.customerId) {
+      return prisma.conversation.update({
+        where: { id: found.id },
+        data: { customerId: lead.customerId },
+      });
+    }
+    return found;
+  }
+
+  return prisma.conversation.create({
+    data: {
+      channel,
+      externalId,
+      leadId: lead.id,
+      customerId: lead.customerId,
+      lastMessageAt: new Date(),
+    },
+  });
+}
+
+async function recordAssistantMessage({
+  conversation,
+  channel,
+  content,
+  quickReplies,
+  attachments,
+}: {
+  conversation: Conversation;
+  channel: 'messenger' | 'sms';
+  content: string;
+  quickReplies: SendMessageInput['quick_replies'] | null;
+  attachments: SendMessageInput['attachments'] | null;
+}): Promise<void> {
+  const createdAt = new Date();
+  const metadata: Prisma.JsonObject = {
+    source: 'live',
+    direction: 'outbound',
+    channel,
+  };
+  if (quickReplies?.length) {
+    metadata.quick_replies = quickReplies;
+  }
+  if (attachments?.length) {
+    metadata.attachments = attachments;
+  }
+  await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      role: 'assistant',
+      content,
+      metadata,
+      createdAt,
+    },
+  });
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: createdAt },
+  });
 }
 
 function buildSendMessageJsonSchema() {

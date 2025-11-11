@@ -30,7 +30,7 @@ type RecordJobEventResult = {
   created_at: string;
 };
 
-async function executeRecordJobEvent(
+export async function recordJobEvent(
   input: RecordJobEventInput,
 ): Promise<RecordJobEventResult> {
   const job = await prisma.job.findUnique({
@@ -88,7 +88,7 @@ export function buildRecordJobEventTool() {
       'Stores a structured job event so downstream systems can audit quoting and scheduling changes.',
     parameters: recordJobEventJsonSchema,
     execute: async (args) =>
-      executeRecordJobEvent(
+      recordJobEvent(
         recordJobEventParameters.parse({
           payload: null,
           ...args,

@@ -7,6 +7,7 @@ const DEFAULT_CANDIDATE_LIMIT = 5;
 const JOB_FETCH_MULTIPLIER = 3;
 const LEAD_FETCH_MULTIPLIER = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const AMBIGUOUS_SCORE_DELTA = 0.05;
 
 export const ADDRESS_CONFIRM_YES = 'ADDRESS_CONFIRM_YES';
 export const ADDRESS_CONFIRM_NO = 'ADDRESS_CONFIRM_NO';
@@ -83,6 +84,30 @@ export async function fetchContextCandidates(
       return b.lastInteractionAt.getTime() - a.lastInteractionAt.getTime();
     })
     .slice(0, limit);
+}
+
+export function getAmbiguousContextCandidates(
+  candidates: ContextCandidate[],
+  delta = AMBIGUOUS_SCORE_DELTA,
+): ContextCandidate[] {
+  if (candidates.length < 2) {
+    return [];
+  }
+  const [first, second] = candidates;
+  const firstScore = first.score ?? 0;
+  const secondScore = second.score ?? 0;
+  if (Math.abs(firstScore - secondScore) <= delta) {
+    return candidates.slice(0, 2);
+  }
+  return [];
+}
+
+export function summarizeCandidateOption(candidate: ContextCandidate): string {
+  const dateLabel = candidate.lastInteractionAt
+    ? formatMonthDay(candidate.lastInteractionAt)
+    : 'recent';
+  const address = candidate.addressLine ?? 'address pending';
+  return `${dateLabel} · ${address}`;
 }
 
 export function buildAddressConfirmPrompt(candidate: ContextCandidate): string {
@@ -366,4 +391,35 @@ export function parseContextConfirmationInput(
   }
 
   return null;
+}
+
+export type SerializedCandidate = Omit<ContextCandidate, 'lastInteractionAt'> & {
+  lastInteractionAt: string;
+};
+
+export function serializeCandidate(candidate: ContextCandidate): SerializedCandidate {
+  return {
+    ...candidate,
+    lastInteractionAt: candidate.lastInteractionAt.toISOString(),
+  };
+}
+
+export function deserializeCandidate(
+  serialized: string | null | undefined,
+): ContextCandidate | null {
+  if (!serialized) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(serialized) as SerializedCandidate;
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    return {
+      ...parsed,
+      lastInteractionAt: new Date(parsed.lastInteractionAt),
+    };
+  } catch {
+    return null;
+  }
 }

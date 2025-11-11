@@ -62,6 +62,12 @@ type CreateJobResult = {
   blurb: string;
 };
 
+export async function createJobDirect(
+  input: CreateJobInput,
+): Promise<CreateJobResult> {
+  return executeCreateJob(createJobParameters.parse(input));
+}
+
 async function executeCreateJob(input: CreateJobInput): Promise<CreateJobResult> {
   const customer = await prisma.customer.findUnique({
     where: { id: input.customer_id },
@@ -307,16 +313,14 @@ export function buildCreateJobTool() {
       'Creates or updates a tentative job for the customer, storing metadata for later scheduling.',
     parameters: createJobJsonSchema,
     execute: async (args) =>
-      executeCreateJob(
-        createJobParameters.parse({
-          lead_id: null,
-          address_id: null,
-          category: null,
-          price_amount: null,
-          price_currency: null,
-          scheduled_date: null,
-          ...args,
-        }),
-      ),
+      createJobDirect({
+        lead_id: undefined,
+        address_id: undefined,
+        category: undefined,
+        price_amount: undefined,
+        price_currency: undefined,
+        scheduled_date: undefined,
+        ...args,
+      }),
   });
 }

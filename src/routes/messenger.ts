@@ -5,18 +5,55 @@ import { Prisma } from '@prisma/client';
 import { DateTime } from 'luxon';
 
 import { getJunkQuoteAgent } from '../agent/index.ts';
+import { sendMessengerMessage } from '../adapters/messenger.ts';
 import { buildAgentRunContext, getRunner } from '../lib/agent-runner.ts';
-import { getTenantTimeZone } from '../lib/config.ts';
+import { createJobDirect } from '../tools/create-job.ts';
+import {
+  getTenantTimeZone,
+  isContextMemoryEnabled,
+  isStrictAddressConfirmationEnabled,
+} from '../lib/config.ts';
 import { prisma } from '../lib/prisma.ts';
 import { recordLeadAttachments } from '../lib/attachments.ts';
 import { maybeRunVisionAutomation } from '../lib/vision-automation.ts';
 import { matchSlotSelection } from '../lib/slot-selection.ts';
 import { getCalendarConfig } from '../lib/google-calendar.ts';
-import { ProposedSlot } from '../lib/types.ts';
+import {
+  ADDRESS_CONFIRM_DIFFERENT,
+  ADDRESS_CONFIRM_NO,
+  ADDRESS_CONFIRM_YES,
+  getAmbiguousContextCandidates,
+  buildAddressConfirmPrompt,
+  fetchContextCandidates,
+  parseContextConfirmationInput,
+  serializeCandidate,
+  deserializeCandidate,
+  summarizeCandidateOption,
+  type ContextConfirmationChoice,
+} from '../lib/context.ts';
+import {
+  ContextMemoryState,
+  readContextMemoryState,
+  writeContextMemoryState,
+} from '../lib/context-memory.ts';
+import { ProposedSlot, type ContextCandidate } from '../lib/types.ts';
+import { extractProposedSlots } from '../lib/proposed-slots.ts';
+import { confirmSlotDirect } from '../tools/confirm-slot.ts';
+import { recordJobEvent } from '../tools/record-job-event.ts';
+import { buildBookingConfirmationText } from '../lib/booking.ts';
+import { proposeSlotsDirect } from '../tools/propose-slots.ts';
+import { resolvePreferredDateTime } from '../lib/date-parser.ts';
+import {
+  readSchedulingState,
+  writeSchedulingState,
+  type SchedulingState,
+} from '../lib/scheduling-state.ts';
 
 type LeadWithRelations = Prisma.LeadGetPayload<{
   include: { quotes: { orderBy: { createdAt: 'desc' } } };
 }>;
+
+type ConversationRecord = Prisma.ConversationGetPayload<{}>;
 
 type MessengerAttachment = {
   type: string;
@@ -49,6 +86,37 @@ type MessengerWebhookPayload = {
 
 const CURBSIDE_KEYWORDS = ['curbside', 'driveway', 'garage', 'staged'];
 const PHOTO_REFERENCE_REGEX = /\b(photo|photos|pic|pics|picture|pictures|image|images)\b/i;
+
+const ADDRESS_CONFIRMATION_REPLIES = [
+  { title: 'Yes', payload: ADDRESS_CONFIRM_YES },
+  { title: 'No', payload: ADDRESS_CONFIRM_NO },
+  { title: 'Different place', payload: ADDRESS_CONFIRM_DIFFERENT },
+] as const;
+
+const CONFIRMATION_TEXT_MAP: Record<ContextConfirmationChoice, string> = {
+  yes: 'Yes, that is the same address.',
+  no: 'No, that is not the same address.',
+  different: 'Different address.',
+};
+
+const SLOT_SELECT_PREFIX = 'SLOT_SELECT|';
+const SCHED_CONFIRM_YES = 'SCHED_CONFIRM_YES';
+const SCHED_CONFIRM_NO = 'SCHED_CONFIRM_NO';
+const SCHED_CONFIRM_DIFFERENT = 'SCHED_CONFIRM_DIFFERENT';
+const ADDRESS_SELECT_PREFIX = 'ADDRESS_SELECT|';
+const SCHEDULING_KEYWORDS = [
+  'schedule',
+  'pickup',
+  'pick up',
+  'book',
+  'booking',
+  'slot',
+  'window',
+  'available',
+  'availability',
+  'time',
+  'day',
+];
 
 type Logger = Pick<FastifyRequest['log'], 'info' | 'warn' | 'error' | 'child'>;
 
@@ -111,6 +179,63 @@ async function ensureConversation({
   });
 }
 
+async function recordMessengerInboundMessage({
+  conversation,
+  content,
+  attachments,
+  quickReplyPayload,
+  postbackPayload,
+  messengerMid,
+  psid,
+  timestamp,
+}: {
+  conversation: ConversationRecord;
+  content: string;
+  attachments: string[];
+  quickReplyPayload: string | null;
+  postbackPayload: string | null;
+  messengerMid?: string;
+  psid: string;
+  timestamp?: number;
+}): Promise<void> {
+  const createdAt =
+    typeof timestamp === 'number' && Number.isFinite(timestamp)
+      ? new Date(timestamp)
+      : new Date();
+  const metadata: Prisma.JsonObject = {
+    source: 'live',
+    direction: 'inbound',
+    channel: 'messenger',
+    psid,
+  };
+  if (messengerMid) {
+    metadata.messenger_mid = messengerMid;
+  }
+  if (quickReplyPayload) {
+    metadata.quick_reply_payload = quickReplyPayload;
+  }
+  if (postbackPayload) {
+    metadata.postback_payload = postbackPayload;
+  }
+  if (attachments.length > 0) {
+    metadata.attachments = attachments;
+  }
+  await prisma.message.create({
+    data: {
+      conversationId: conversation.id,
+      role: 'user',
+      content,
+      metadata,
+      createdAt,
+    },
+  });
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: { lastMessageAt: createdAt },
+  });
+  conversation.lastMessageAt = createdAt;
+}
+
 export function buildAgentInput({
   lead,
   text,
@@ -158,9 +283,12 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
       .map((attachment) => attachment.payload.url)
       .filter((url): url is string => Boolean(url)) ?? [];
 
-  const textPayload =
-    message?.quick_reply?.payload ??
-    sanitizeText(message?.text) ??
+  const quickReplyPayload = message?.quick_reply?.payload ?? null;
+  const messageText = sanitizeText(message?.text);
+
+  let textPayload =
+    messageText ??
+    quickReplyPayload ??
     postbackPayload ??
     (attachments.length > 0 ? '[photos uploaded]' : null);
 
@@ -175,6 +303,54 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
     leadId: lead.id,
     customerId: lead.customerId,
   });
+  const tenantTimeZone = getTenantTimeZone();
+  const inboundContent = textPayload;
+
+  await recordMessengerInboundMessage({
+    conversation,
+    content: inboundContent,
+    attachments,
+    quickReplyPayload,
+    postbackPayload,
+    messengerMid: message?.mid,
+    psid,
+    timestamp: event.timestamp,
+  });
+
+  const contextDecision = await maybeHandleMessengerContextGating({
+    lead,
+    conversation,
+    messageText: textPayload,
+    quickReplyPayload,
+    psid,
+    log,
+  });
+
+  if (contextDecision.overrideText) {
+    textPayload = contextDecision.overrideText;
+  }
+
+  if (contextDecision.stopProcessing) {
+    return;
+  }
+
+  const schedulingDecision = await maybeHandleMessengerScheduling({
+    lead,
+    conversation,
+    messageText: textPayload,
+    quickReplyPayload,
+    psid,
+    timeZone: tenantTimeZone,
+    log,
+  });
+
+  if (schedulingDecision.overrideText) {
+    textPayload = schedulingDecision.overrideText;
+  }
+
+  if (schedulingDecision.stopProcessing) {
+    return;
+  }
 
   const attachmentHistory = await recordLeadAttachments(
     lead.id,
@@ -222,7 +398,6 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
 
   const metadata = (lead.stateMetadata as Prisma.JsonValue | null) ?? null;
   const proposedSlots = extractProposedSlots(metadata);
-  const tenantTimeZone = getTenantTimeZone();
   const calendarConfig = getCalendarConfig();
   const timeZone = calendarConfig?.timeZone ?? tenantTimeZone;
   const slotMatch =
@@ -263,6 +438,24 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
       } as Prisma.JsonObject,
     },
   });
+
+  if (contextDecision.stopProcessing) {
+    return;
+  }
+
+  const slotHandled = await maybeHandleMessengerSlotSelection({
+    slotMatch,
+    lead,
+    psid,
+    timeZone,
+    log,
+    quickReplyPayload,
+    proposedSlots,
+    conversation,
+  });
+  if (slotHandled) {
+    return;
+  }
 
   const runner = getRunner();
   const agent = getJunkQuoteAgent();
@@ -337,38 +530,6 @@ async function processMessengerEvent(event: MessengerEvent, log: Logger) {
   }
 }
 
-function extractProposedSlots(metadata: Prisma.JsonValue | null): ProposedSlot[] {
-  if (!metadata || typeof metadata !== 'object') {
-    return [];
-  }
-  const raw = (metadata as Record<string, unknown>).proposed_slots;
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-  return raw
-    .map((slot) => {
-      if (!slot || typeof slot !== 'object') return null;
-      const id = typeof (slot as Record<string, unknown>).id === 'string' ? (slot as Record<string, unknown>).id : null;
-      const label =
-        typeof (slot as Record<string, unknown>).label === 'string'
-          ? (slot as Record<string, unknown>).label
-          : '';
-      const window_start =
-        typeof (slot as Record<string, unknown>).window_start === 'string'
-          ? (slot as Record<string, unknown>).window_start
-          : null;
-      const window_end =
-        typeof (slot as Record<string, unknown>).window_end === 'string'
-          ? (slot as Record<string, unknown>).window_end
-          : null;
-      if (!id || !window_start || !window_end) {
-        return null;
-      }
-      return { id, label, window_start, window_end };
-    })
-    .filter((slot): slot is ProposedSlot => Boolean(slot));
-}
-
 function buildAutomationHints({
   slotMatch,
   lead,
@@ -417,6 +578,1111 @@ function buildAutomationNoteSection(notes: string[]): string {
   return ['Automation hints (internal):', ...notes.map((note) => `- ${note}`)].join(
     '\n',
   );
+}
+
+type CandidateSelectionResult = {
+  candidate: ContextCandidate;
+  index: number;
+};
+
+type CandidateSearchResult = {
+  candidate: ContextCandidate | null;
+  disambiguation: ContextCandidate[];
+};
+
+function readPendingCandidateOptions(
+  state: ContextMemoryState,
+): ContextCandidate[] {
+  const raw = state.pending_candidate_options;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((entry) => {
+      if (typeof entry !== 'string') {
+        return null;
+      }
+      return deserializeCandidate(entry);
+    })
+    .filter((candidate): candidate is ContextCandidate => Boolean(candidate));
+}
+
+function parseCandidateSelectionInput({
+  payload,
+  text,
+  options,
+}: {
+  payload: string | null;
+  text: string | null;
+  options: ContextCandidate[];
+}): CandidateSelectionResult | null {
+  if (!options.length) {
+    return null;
+  }
+  if (payload && payload.startsWith(ADDRESS_SELECT_PREFIX)) {
+    const candidate = options.find(
+      (option) => `${ADDRESS_SELECT_PREFIX}${option.id}` === payload,
+    );
+    if (candidate) {
+      return { candidate, index: options.indexOf(candidate) };
+    }
+  }
+  const normalized = text?.trim().toLowerCase() ?? '';
+  if (!normalized) {
+    return null;
+  }
+  if (/^(1|one|first)[\s.:]?/.test(normalized) && options[0]) {
+    return { candidate: options[0], index: 0 };
+  }
+  if (/^(2|two|second)[\s.:]?/.test(normalized) && options[1]) {
+    return { candidate: options[1], index: 1 };
+  }
+  return null;
+}
+
+function buildCandidateOptionsPrompt(
+  options: ContextCandidate[],
+): { text: string; quickReplies: { title: string; payload: string }[] } {
+  const lines = options.map(
+    (candidate, index) => `${index + 1}) ${summarizeCandidateOption(candidate)}`,
+  );
+  const text = ['Quick check: which past address is this about?']
+    .concat(lines)
+    .concat('Reply 1 or 2, or tap “Different place”.')
+    .join('\n');
+  const quickReplies = options.map((candidate, index) => ({
+    title: `Option ${index + 1}`,
+    payload: `${ADDRESS_SELECT_PREFIX}${candidate.id}`,
+  }));
+  quickReplies.push({ title: 'Different place', payload: ADDRESS_CONFIRM_DIFFERENT });
+  return { text, quickReplies };
+}
+
+async function sendMessengerCandidateOptionsPrompt({
+  psid,
+  options,
+  log,
+}: {
+  psid: string;
+  options: ContextCandidate[];
+  log: Logger;
+}): Promise<{ sent: boolean; prompt: string }> {
+  const { text, quickReplies } = buildCandidateOptionsPrompt(options);
+  try {
+    await sendMessengerMessage({
+      to: psid,
+      text,
+      quickReplies,
+      jitter: false,
+    });
+    return { sent: true, prompt: text };
+  } catch (error) {
+    log.error({ err: error }, 'Failed to send Messenger candidate options prompt.');
+    return { sent: false, prompt: text };
+  }
+}
+
+function getAddressPromptAttempts(state: ContextMemoryState): number {
+  const attempts = state.awaiting_address_attempts;
+  if (typeof attempts === 'number' && Number.isFinite(attempts) && attempts >= 0) {
+    return attempts;
+  }
+  return 0;
+}
+
+function isAwaitingNewAddress(state: ContextMemoryState): boolean {
+  return Boolean(state.awaiting_new_address);
+}
+
+async function promptMessengerForAddress({
+  psid,
+  conversation,
+  contextState,
+}: {
+  psid: string;
+  conversation: ConversationRecord;
+  contextState: ContextMemoryState;
+}): Promise<ContextMemoryState> {
+  const attempts = getAddressPromptAttempts(contextState);
+  const example = '123 Main St, Springfield, MA';
+  const text =
+    attempts > 0
+      ? `Still need the pickup address. Please send it like “${example}”.`
+      : `No problem—what address should we use? (For example: ${example})`;
+  await sendMessengerMessage({
+    to: psid,
+    text,
+    jitter: false,
+  });
+  const nextState: ContextMemoryState = {
+    ...contextState,
+    awaiting_new_address: true,
+    awaiting_address_attempts: attempts + 1,
+    awaiting_address_prompted_at: new Date().toISOString(),
+    pending_candidate_id: null,
+    pending_candidate_prompt: null,
+    pending_candidate_summary: null,
+    pending_candidate_address: null,
+    pending_candidate_snapshot: null,
+    pending_candidate_options: [],
+  };
+  conversation.metadata = await writeContextMemoryState({
+    conversationId: conversation.id,
+    existingMetadata: conversation.metadata,
+    nextState,
+  });
+  return nextState;
+}
+
+async function handleMessengerAddressCapture({
+  messageText,
+  lead,
+  psid,
+  conversation,
+  contextState,
+  log,
+}: {
+  messageText: string;
+  lead: LeadWithRelations;
+  psid: string;
+  conversation: ConversationRecord;
+  contextState: ContextMemoryState;
+  log: Logger;
+}): Promise<{
+  contextState: ContextMemoryState;
+  stopProcessing: boolean;
+  overrideText?: string;
+}> {
+  const extracted = maybeExtractAddress(messageText);
+  if (!extracted) {
+    const nextState = await promptMessengerForAddress({
+      psid,
+      conversation,
+      contextState,
+    });
+    return { contextState: nextState, stopProcessing: true };
+  }
+  if (extracted !== lead.address?.trim()) {
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: { address: extracted },
+    });
+    lead.address = extracted;
+    log.info({ leadId: lead.id, address: extracted }, 'Captured address from prompt response.');
+  }
+  const nextState: ContextMemoryState = {
+    ...contextState,
+    awaiting_new_address: false,
+    awaiting_address_attempts: 0,
+    awaiting_address_prompted_at: null,
+  };
+  conversation.metadata = await writeContextMemoryState({
+    conversationId: conversation.id,
+    existingMetadata: conversation.metadata,
+    nextState,
+  });
+  await sendMessengerMessage({
+    to: psid,
+    text: 'Thanks! I’ll use that address for this pickup.',
+    jitter: false,
+  }).catch((error) => {
+    log.warn({ err: error }, 'Failed to send Messenger address acknowledgment.');
+  });
+  return {
+    contextState: nextState,
+    stopProcessing: false,
+    overrideText: `Address confirmed: ${extracted}`,
+  };
+}
+
+async function maybeHandleMessengerSlotSelection({
+  slotMatch,
+  lead,
+  psid,
+  timeZone,
+  log,
+  quickReplyPayload,
+  proposedSlots,
+  conversation,
+}: {
+  slotMatch: ReturnType<typeof matchSlotSelection>;
+  lead: LeadWithRelations;
+  psid: string;
+  timeZone: string;
+  log: Logger;
+  quickReplyPayload: string | null;
+  proposedSlots: ProposedSlot[];
+  conversation: ConversationRecord;
+}): Promise<boolean> {
+  let resolvedMatch = slotMatch;
+  if (!resolvedMatch && quickReplyPayload?.startsWith(SLOT_SELECT_PREFIX)) {
+    const slotId = quickReplyPayload.slice(SLOT_SELECT_PREFIX.length);
+    const slot = proposedSlots.find((candidate) => candidate.id === slotId);
+    if (slot) {
+      resolvedMatch = { slot, reason: 'label_match' };
+    }
+  }
+
+  if (!resolvedMatch) {
+    return false;
+  }
+  try {
+    const result = await confirmSlotDirect({
+      lead_id: lead.id,
+      slot: resolvedMatch.slot,
+      quote_id: lead.quotes[0]?.id,
+      notes: undefined,
+      address: lead.address ?? undefined,
+    });
+
+    if ('needs_address' in result) {
+      await sendMessengerMessage({
+        to: psid,
+        text: result.message,
+        jitter: false,
+      });
+      return true;
+    }
+
+    const eventPayload: Record<string, unknown> = {
+      slot_id: resolvedMatch.slot.id,
+      channel: 'messenger',
+    };
+    const basis = getContextBasis(readContextMemoryState(conversation.metadata));
+    if (basis) {
+      eventPayload.basis = basis;
+    }
+    await recordJobEvent({
+      job_id: result.job_id,
+      type: 'scheduled',
+      payload: eventPayload as Prisma.JsonObject,
+    }).catch((error) => {
+      log.warn({ err: error }, 'Failed to record job event after auto confirmation.');
+    });
+
+    const resolvedQuote =
+      (await prisma.quote.findUnique({ where: { id: result.quote_id } })) ??
+      lead.quotes[0] ??
+      null;
+
+    const confirmationText = buildBookingConfirmationText({
+      windowStartIso: result.window_start,
+      windowEndIso: result.window_end,
+      address: lead.address ?? '',
+      timeZone,
+      lowEstimate: resolvedQuote ? resolvedQuote.subtotal.toNumber() : null,
+      highEstimate: resolvedQuote ? resolvedQuote.total.toNumber() : null,
+    });
+
+    await sendMessengerMessage({
+      to: psid,
+      text: confirmationText,
+      jitter: false,
+    });
+
+    await prisma.audit.create({
+      data: {
+        leadId: lead.id,
+        actor: 'system',
+        action: 'slot_confirmed_auto',
+        payload: {
+          slot_id: slotMatch.slot.id,
+          channel: 'messenger',
+        } as Prisma.JsonObject,
+      },
+    });
+
+    return true;
+  } catch (error) {
+    log.error({ err: error }, 'Automatic slot confirmation failed.');
+    return false;
+  }
+}
+
+type MessengerContextDecision = {
+  stopProcessing: boolean;
+  overrideText?: string;
+};
+
+async function maybeHandleMessengerContextGating({
+  lead,
+  conversation,
+  messageText,
+  quickReplyPayload,
+  psid,
+  log,
+}: {
+  lead: LeadWithRelations;
+  conversation: ConversationRecord;
+  messageText: string;
+  quickReplyPayload: string | null;
+  psid: string;
+  log: Logger;
+}): Promise<MessengerContextDecision> {
+  if (
+    !isContextMemoryEnabled() ||
+    !isStrictAddressConfirmationEnabled() ||
+    !lead.customerId
+  ) {
+    return { stopProcessing: false };
+  }
+
+  let contextState = readContextMemoryState(conversation.metadata);
+
+  if (isAwaitingNewAddress(contextState)) {
+    const addressResult = await handleMessengerAddressCapture({
+      messageText,
+      lead,
+      psid,
+      conversation,
+      contextState,
+      log,
+    });
+    contextState = addressResult.contextState;
+    if (addressResult.stopProcessing) {
+      return { stopProcessing: true };
+    }
+    return {
+      stopProcessing: false,
+      overrideText: addressResult.overrideText,
+    };
+  }
+
+  const pendingOptions = readPendingCandidateOptions(contextState);
+  const selection = parseCandidateSelectionInput({
+    payload: quickReplyPayload,
+    text: messageText,
+    options: pendingOptions,
+  });
+  if (selection) {
+    const selectedCandidate = selection.candidate;
+    const selectionState: ContextMemoryState = {
+      ...contextState,
+      pending_candidate_id: selectedCandidate.id,
+      pending_candidate_prompt: buildAddressConfirmPrompt(selectedCandidate),
+      pending_candidate_summary: selectedCandidate.summary,
+      pending_candidate_address: selectedCandidate.addressLine ?? null,
+      pending_sent_at: new Date().toISOString(),
+      pending_candidate_snapshot: JSON.stringify(serializeCandidate(selectedCandidate)),
+      pending_candidate_options: [],
+    };
+    conversation.metadata = await writeContextMemoryState({
+      conversationId: conversation.id,
+      existingMetadata: conversation.metadata,
+      nextState: selectionState,
+    });
+    contextState = selectionState;
+    const updatedState = await handleContextConfirmationChoice({
+      choice: 'yes',
+      lead,
+      candidateId: selectedCandidate.id,
+      conversation,
+      contextState,
+      log,
+    });
+    contextState = updatedState;
+    return { stopProcessing: false, overrideText: confirmationText('yes') };
+  }
+
+  let pendingCandidateId = getStringField(contextState, 'pending_candidate_id');
+  const choice = parseContextConfirmationInput(quickReplyPayload, messageText);
+
+  if (choice && pendingCandidateId) {
+    const updatedState = await handleContextConfirmationChoice({
+      choice,
+      lead,
+      candidateId: pendingCandidateId,
+      conversation,
+      contextState,
+      log,
+    });
+    contextState = updatedState;
+    if (choice === 'different') {
+      contextState = await promptMessengerForAddress({
+        psid,
+        conversation,
+        contextState,
+      });
+      return { stopProcessing: true };
+    }
+    return { stopProcessing: false, overrideText: confirmationText(choice) };
+  }
+
+  if (choice) {
+    if (choice === 'different') {
+      contextState = await promptMessengerForAddress({
+        psid,
+        conversation,
+        contextState,
+      });
+      return { stopProcessing: true };
+    }
+    return { stopProcessing: false, overrideText: confirmationText(choice) };
+  }
+
+  const refreshedOptions = readPendingCandidateOptions(contextState);
+  if (refreshedOptions.length > 0) {
+    const { sent, prompt } = await sendMessengerCandidateOptionsPrompt({
+      psid,
+      options: refreshedOptions,
+      log,
+    });
+    if (sent) {
+      const nextState: ContextMemoryState = {
+        ...contextState,
+        pending_candidate_prompt: prompt,
+        pending_sent_at: new Date().toISOString(),
+      };
+      conversation.metadata = await writeContextMemoryState({
+        conversationId: conversation.id,
+        existingMetadata: conversation.metadata,
+        nextState,
+      });
+      contextState = nextState;
+      return { stopProcessing: true };
+    }
+  }
+
+  pendingCandidateId = getStringField(contextState, 'pending_candidate_id');
+  if (pendingCandidateId) {
+    const prompt = getStringField(contextState, 'pending_candidate_prompt');
+    if (prompt) {
+      const sent = await sendMessengerContextPrompt(psid, prompt, log);
+      if (!sent) {
+        return { stopProcessing: false };
+      }
+    }
+    return { stopProcessing: true };
+  }
+
+  if (!messageText || messageText === '[photos uploaded]') {
+    return { stopProcessing: false };
+  }
+
+  const candidateResult = await findNextContextCandidate({
+    customerId: lead.customerId,
+    messageText,
+    contextState,
+    log,
+  });
+
+  if (candidateResult.disambiguation.length >= 2) {
+    const { sent, prompt } = await sendMessengerCandidateOptionsPrompt({
+      psid,
+      options: candidateResult.disambiguation,
+      log,
+    });
+    if (sent) {
+      const serializedOptions = candidateResult.disambiguation.map((candidate) =>
+        JSON.stringify(serializeCandidate(candidate)),
+      );
+      const nextState: ContextMemoryState = {
+        ...contextState,
+        pending_candidate_id: null,
+        pending_candidate_prompt: prompt,
+        pending_candidate_summary: null,
+        pending_candidate_address: null,
+        pending_sent_at: new Date().toISOString(),
+        pending_candidate_snapshot: null,
+        pending_candidate_options: serializedOptions,
+      };
+      conversation.metadata = await writeContextMemoryState({
+        conversationId: conversation.id,
+        existingMetadata: conversation.metadata,
+        nextState,
+      });
+      contextState = nextState;
+      await prisma.audit.create({
+        data: {
+          leadId: lead.id,
+          actor: 'system',
+          action: 'context_prompted',
+          payload: {
+            candidate_ids: candidateResult.disambiguation.map((candidate) => candidate.id),
+            summaries: candidateResult.disambiguation.map((candidate) => candidate.summary),
+            mode: 'disambiguation',
+          } as Prisma.JsonObject,
+        },
+      });
+      return { stopProcessing: true };
+    }
+  }
+
+  const candidate = candidateResult.candidate;
+  if (!candidate) {
+    return { stopProcessing: false };
+  }
+
+  const prompt = buildAddressConfirmPrompt(candidate);
+  const sent = await sendMessengerContextPrompt(psid, prompt, log);
+  if (!sent) {
+    return { stopProcessing: false };
+  }
+
+  const nextState: ContextMemoryState = {
+    ...contextState,
+    pending_candidate_id: candidate.id,
+    pending_candidate_prompt: prompt,
+    pending_candidate_summary: candidate.summary,
+    pending_candidate_address: candidate.addressLine ?? null,
+    pending_sent_at: new Date().toISOString(),
+    pending_candidate_snapshot: JSON.stringify(serializeCandidate(candidate)),
+    pending_candidate_options: [],
+  };
+
+  conversation.metadata = await writeContextMemoryState({
+    conversationId: conversation.id,
+    existingMetadata: conversation.metadata,
+    nextState,
+  });
+
+  await prisma.audit.create({
+    data: {
+      leadId: lead.id,
+      actor: 'system',
+      action: 'context_prompted',
+      payload: {
+        candidate_id: candidate.id,
+        summary: candidate.summary,
+        address: candidate.addressLine ?? null,
+      } as Prisma.JsonObject,
+    },
+  });
+
+  return { stopProcessing: true };
+}
+
+async function handleContextConfirmationChoice({
+  choice,
+  lead,
+  candidateId,
+  conversation,
+  contextState,
+  log,
+}: {
+  choice: ContextConfirmationChoice;
+  lead: LeadWithRelations;
+  candidateId: string;
+  conversation: ConversationRecord;
+  contextState: ContextMemoryState;
+  log: Logger;
+}): Promise<ContextMemoryState> {
+  const baseState: ContextMemoryState = {
+    ...contextState,
+    pending_candidate_id: null,
+    pending_candidate_prompt: null,
+    pending_candidate_summary: null,
+    pending_candidate_address: null,
+    pending_sent_at: null,
+    pending_candidate_snapshot: null,
+    pending_candidate_options: [],
+  };
+
+  if (choice === 'yes') {
+    const confirmed = new Set(getStringArrayField(contextState, 'confirmed_candidate_ids'));
+    confirmed.add(candidateId);
+    const dismissed = getStringArrayField(contextState, 'dismissed_candidate_ids').filter(
+      (id) => id !== candidateId,
+    );
+    const createdJobId = await maybeCreateJobFromCandidate({
+      lead,
+      candidateSnapshotJson: contextState.pending_candidate_snapshot,
+      log,
+    });
+    const nextState: ContextMemoryState = {
+      ...baseState,
+      confirmed_candidate_ids: Array.from(confirmed),
+      dismissed_candidate_ids: dismissed,
+      confirmed_at: new Date().toISOString(),
+      latest_context_job_id: createdJobId ?? getStringField(contextState, 'latest_context_job_id'),
+      awaiting_new_address: false,
+      awaiting_address_attempts: 0,
+      awaiting_address_prompted_at: null,
+    };
+    conversation.metadata = await writeContextMemoryState({
+      conversationId: conversation.id,
+      existingMetadata: conversation.metadata,
+      nextState,
+    });
+    await prisma.audit.create({
+      data: {
+        leadId: lead.id,
+        actor: 'system',
+        action: 'context_confirmed',
+        payload: {
+          candidate_id: candidateId,
+        } as Prisma.JsonObject,
+      },
+    });
+    return nextState;
+  }
+
+  const dismissed = new Set(getStringArrayField(contextState, 'dismissed_candidate_ids'));
+  dismissed.add(candidateId);
+  const awaitingNewAddress = choice === 'different';
+  const nextState: ContextMemoryState = {
+    ...baseState,
+    dismissed_candidate_ids: Array.from(dismissed),
+    latest_context_job_id: getStringField(contextState, 'latest_context_job_id'),
+    awaiting_new_address: awaitingNewAddress,
+    awaiting_address_attempts: awaitingNewAddress
+      ? getAddressPromptAttempts(contextState)
+      : 0,
+    awaiting_address_prompted_at: awaitingNewAddress
+      ? contextState.awaiting_address_prompted_at ?? null
+      : null,
+  };
+
+  conversation.metadata = await writeContextMemoryState({
+    conversationId: conversation.id,
+    existingMetadata: conversation.metadata,
+    nextState,
+  });
+
+  await prisma.audit.create({
+    data: {
+      leadId: lead.id,
+      actor: 'system',
+      action: 'context_declined',
+      payload: {
+        candidate_id: candidateId,
+        reason: choice,
+      } as Prisma.JsonObject,
+    },
+  });
+
+  return nextState;
+}
+
+async function findNextContextCandidate({
+  customerId,
+  messageText,
+  contextState,
+  log,
+}: {
+  customerId: string;
+  messageText: string;
+  contextState: ContextMemoryState;
+  log: Logger;
+}): Promise<CandidateSearchResult> {
+  try {
+    const candidates = await fetchContextCandidates(customerId, messageText, 5);
+    const dismissed = new Set(getStringArrayField(contextState, 'dismissed_candidate_ids'));
+    const confirmed = new Set(getStringArrayField(contextState, 'confirmed_candidate_ids'));
+    const eligible = candidates.filter(
+      (candidate) => !dismissed.has(candidate.id) && !confirmed.has(candidate.id),
+    );
+    if (eligible.length === 0) {
+      return { candidate: null, disambiguation: [] };
+    }
+    const disambiguation = getAmbiguousContextCandidates(eligible);
+    if (disambiguation.length >= 2) {
+      return { candidate: null, disambiguation };
+    }
+    return { candidate: eligible[0], disambiguation: [] };
+  } catch (error) {
+    log.warn({ err: error }, 'Failed to fetch context candidates.');
+    return { candidate: null, disambiguation: [] };
+  }
+}
+
+function getStringArrayField(state: ContextMemoryState, key: string): string[] {
+  const value = state[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
+function getStringField(state: ContextMemoryState, key: string): string | null {
+  const value = state[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function confirmationText(choice: ContextConfirmationChoice): string {
+  return CONFIRMATION_TEXT_MAP[choice];
+}
+
+function getContextBasis(contextState: ContextMemoryState): string | undefined {
+  const confirmed = getStringArrayField(contextState, 'confirmed_candidate_ids');
+  if (confirmed.length > 0) {
+    return 'prior_job_context_confirmed';
+  }
+  return undefined;
+}
+
+async function sendMessengerContextPrompt(
+  psid: string,
+  text: string,
+  log: Logger,
+): Promise<boolean> {
+  try {
+    await sendMessengerMessage({
+      to: psid,
+      text,
+      quickReplies: ADDRESS_CONFIRMATION_REPLIES,
+      jitter: false,
+    });
+    return true;
+  } catch (error) {
+    log.error({ err: error }, 'Failed to send Messenger context prompt.');
+    return false;
+  }
+}
+
+async function maybeCreateJobFromCandidate({
+  lead,
+  candidateSnapshotJson,
+  log,
+}: {
+  lead: LeadWithRelations;
+  candidateSnapshotJson: string | null | undefined;
+  log: Logger;
+}): Promise<string | null> {
+  if (!candidateSnapshotJson || !lead.customerId) {
+    return null;
+  }
+  const candidate = deserializeCandidate(candidateSnapshotJson);
+  if (!candidate) {
+    return null;
+  }
+  try {
+    const job = await createJobDirect({
+      customer_id: lead.customerId,
+      lead_id: lead.id,
+      address_id: candidate.addressId ?? undefined,
+      title: buildAutoJobTitle(candidate),
+      description: buildAutoJobDescription(candidate),
+      category: candidate.category ?? undefined,
+      scheduled_date: candidate.lastInteractionAt.toISOString(),
+    });
+    await recordJobEvent({
+      job_id: job.job_id,
+      type: 'quoted',
+      payload: {
+        basis: 'prior_job_context_confirmed',
+        candidate_id: candidate.id,
+      },
+    });
+    return job.job_id;
+  } catch (error) {
+    log.warn({ err: error }, 'Failed to create job from confirmed context.');
+    return null;
+  }
+}
+
+function buildAutoJobTitle(candidate: ContextCandidate): string {
+  if (candidate.summary) {
+    return candidate.summary.slice(0, 80);
+  }
+  return candidate.source === 'job' ? 'Returning pickup' : 'Follow-up conversation';
+}
+
+function buildAutoJobDescription(candidate: ContextCandidate): string {
+  const parts = [
+    candidate.summary ?? 'Returning customer request.',
+    candidate.addressLine ? `Address: ${candidate.addressLine}.` : null,
+    `Source: ${candidate.source}.`,
+  ].filter(Boolean);
+  return parts.join(' ');
+}
+
+type MessengerSchedulingDecision = {
+  stopProcessing: boolean;
+  overrideText?: string;
+};
+
+async function maybeHandleMessengerScheduling({
+  lead,
+  conversation,
+  messageText,
+  quickReplyPayload,
+  psid,
+  timeZone,
+  log,
+}: {
+  lead: LeadWithRelations;
+  conversation: ConversationRecord;
+  messageText: string;
+  quickReplyPayload: string | null;
+  psid: string;
+  timeZone: string;
+  log: Logger;
+}): Promise<MessengerSchedulingDecision> {
+  const schedulingState = readSchedulingState(conversation.metadata);
+  const pendingConfirmation = schedulingState.pending_confirmation ?? null;
+  const confirmationFromPayload = parseSchedulingConfirmationPayload(quickReplyPayload);
+  if (confirmationFromPayload && pendingConfirmation) {
+    return handleSchedulingConfirmationChoice({
+      choice: confirmationFromPayload.choice,
+      lead,
+      conversation,
+      schedulingState,
+      pendingConfirmation,
+      psid,
+      timeZone,
+      log,
+    });
+  }
+
+  if (pendingConfirmation) {
+    const textChoice = parseContextConfirmationInput(null, messageText);
+    if (textChoice) {
+      return handleSchedulingConfirmationChoice({
+        choice: textChoice,
+        lead,
+        conversation,
+        schedulingState,
+        pendingConfirmation,
+        psid,
+        timeZone,
+        log,
+      });
+    }
+  }
+
+  const schedulingIntent = detectSchedulingIntent(messageText, timeZone);
+  if (!schedulingIntent) {
+    return { stopProcessing: false };
+  }
+
+  const prompt = `Want me to line up pickup windows for ${schedulingIntent.label}?`;
+  await sendMessengerMessage({
+    to: psid,
+    text: prompt,
+    quickReplies: [
+      { title: 'Yes', payload: `${SCHED_CONFIRM_YES}|${schedulingIntent.iso}` },
+      { title: 'No', payload: `${SCHED_CONFIRM_NO}|${schedulingIntent.iso}` },
+      { title: 'Different day', payload: `${SCHED_CONFIRM_DIFFERENT}|${schedulingIntent.iso}` },
+    ],
+    jitter: false,
+  });
+
+  const nextState: SchedulingState = {
+    ...schedulingState,
+    pending_confirmation: {
+      iso: schedulingIntent.iso,
+      label: schedulingIntent.label,
+      prompt,
+      preferred_text: schedulingIntent.preferredText,
+      timeZone,
+    },
+  };
+  conversation.metadata = await writeSchedulingState({
+    conversationId: conversation.id,
+    existingMetadata: conversation.metadata,
+    nextState,
+  });
+
+  return { stopProcessing: true };
+}
+
+type SchedulingConfirmationChoice = 'yes' | 'no' | 'different';
+
+async function handleSchedulingConfirmationChoice({
+  choice,
+  lead,
+  conversation,
+  schedulingState,
+  pendingConfirmation,
+  psid,
+  timeZone,
+  log,
+}: {
+  choice: SchedulingConfirmationChoice;
+  lead: LeadWithRelations;
+  conversation: ConversationRecord;
+  schedulingState: SchedulingState;
+  pendingConfirmation: NonNullable<SchedulingState['pending_confirmation']>;
+  psid: string;
+  timeZone: string;
+  log: Logger;
+}): Promise<MessengerSchedulingDecision> {
+  const baseState: SchedulingState = {
+    ...schedulingState,
+    pending_confirmation: null,
+  };
+  if (choice === 'yes') {
+    const handled = await sendMessengerSlotsForDate({
+      lead,
+      conversation,
+      iso: pendingConfirmation.iso,
+      preferredText: pendingConfirmation.preferred_text ?? null,
+      psid,
+      timeZone,
+      schedulingState: baseState,
+      log,
+    });
+    return { stopProcessing: handled };
+  }
+
+  if (choice === 'different') {
+    await sendMessengerMessage({
+      to: psid,
+      text: 'No problem—what day and time should we aim for?',
+      jitter: false,
+    });
+    conversation.metadata = await writeSchedulingState({
+      conversationId: conversation.id,
+      existingMetadata: conversation.metadata,
+      nextState: baseState,
+    });
+    return { stopProcessing: true };
+  }
+
+  await sendMessengerMessage({
+    to: psid,
+    text: 'Okay! Just share the day and time you prefer, and I’ll check availability.',
+    jitter: false,
+  });
+  conversation.metadata = await writeSchedulingState({
+    conversationId: conversation.id,
+    existingMetadata: conversation.metadata,
+    nextState: baseState,
+  });
+  return { stopProcessing: true };
+}
+
+async function sendMessengerSlotsForDate({
+  lead,
+  conversation,
+  iso,
+  preferredText,
+  psid,
+  timeZone,
+  schedulingState,
+  log,
+}: {
+  lead: LeadWithRelations;
+  conversation: ConversationRecord;
+  iso: string;
+  preferredText: string | null;
+  psid: string;
+  timeZone: string;
+  schedulingState: SchedulingState;
+  log: Logger;
+}): Promise<boolean> {
+  try {
+    const result = await proposeSlotsDirect({
+      lead_id: lead.id,
+      preferred_day: iso,
+      preferred_time_text: preferredText ?? undefined,
+    });
+    let slots = result.slots;
+    let header = `Here’s what’s open around ${formatScheduleLabel(new Date(iso), timeZone)}:`;
+
+    if (!slots.length) {
+      const fallback = await proposeSlotsDirect({
+        lead_id: lead.id,
+        preferred_day: undefined,
+        preferred_time_text: undefined,
+      });
+      if (!fallback.slots.length) {
+        await sendMessengerMessage({
+          to: psid,
+          text: 'I couldn’t find openings near that time. Want to try a different day?',
+          jitter: false,
+        });
+        conversation.metadata = await writeSchedulingState({
+          conversationId: conversation.id,
+          existingMetadata: conversation.metadata,
+          nextState: schedulingState,
+        });
+        return true;
+      }
+      slots = fallback.slots;
+      header = 'Nothing open at that time, but the soonest windows are:';
+    }
+
+    const quickReplies = slots.slice(0, 3).map((slot) => ({
+      title: formatSlotQuickReplyTitle(slot, timeZone),
+      payload: `${SLOT_SELECT_PREFIX}${slot.id}`,
+    }));
+    const lines = slots.slice(0, 3).map((slot, index) => {
+      const label = formatSlotLabel(slot);
+      return `${index + 1}. ${label}`;
+    });
+    const text = [header].concat(lines).join('\n');
+
+    await sendMessengerMessage({
+      to: psid,
+      text,
+      quickReplies,
+      jitter: false,
+    });
+
+    const nextState: SchedulingState = {
+      ...schedulingState,
+      pending_confirmation: null,
+      last_slots_prompt_at: new Date().toISOString(),
+      last_slots_prompt_text: text,
+    };
+    conversation.metadata = await writeSchedulingState({
+      conversationId: conversation.id,
+      existingMetadata: conversation.metadata,
+      nextState,
+    });
+    return true;
+  } catch (error) {
+    log.warn({ err: error }, 'Failed to propose slots automatically.');
+    return false;
+  }
+}
+
+function parseSchedulingConfirmationPayload(
+  payload: string | null,
+): { choice: SchedulingConfirmationChoice; iso?: string } | null {
+  if (!payload) {
+    return null;
+  }
+  if (!payload.startsWith('SCHED_CONFIRM_')) {
+    return null;
+  }
+  const [prefix, iso] = payload.split('|');
+  if (prefix === SCHED_CONFIRM_YES) {
+    return { choice: 'yes', iso };
+  }
+  if (prefix === SCHED_CONFIRM_NO) {
+    return { choice: 'no', iso };
+  }
+  if (prefix === SCHED_CONFIRM_DIFFERENT) {
+    return { choice: 'different', iso };
+  }
+  return null;
+}
+
+function detectSchedulingIntent(
+  text: string | null,
+  timeZone: string,
+): { iso: string; label: string; preferredText: string } | null {
+  if (!text) {
+    return null;
+  }
+  const normalized = text.toLowerCase();
+  const keywordHit = SCHEDULING_KEYWORDS.some((keyword) =>
+    normalized.includes(keyword),
+  );
+  if (!keywordHit) {
+    return null;
+  }
+  const resolved = resolvePreferredDateTime(text, timeZone);
+  if (!resolved) {
+    return null;
+  }
+  const iso = resolved.toISOString();
+  const label = formatScheduleLabel(resolved, timeZone);
+  return { iso, label, preferredText: text };
+}
+
+function formatScheduleLabel(date: Date, timeZone: string): string {
+  const dt = DateTime.fromJSDate(date, { zone: timeZone });
+  return dt.toFormat('ccc MMM d h:mm a');
+}
+
+function formatSlotQuickReplyTitle(slot: ProposedSlot, timeZone: string): string {
+  const start = DateTime.fromISO(slot.window_start).setZone(timeZone);
+  const end = DateTime.fromISO(slot.window_end).setZone(timeZone);
+  return `${start.toFormat('ccc h a')}-${end.toFormat('h a')}`.slice(0, 20);
 }
 
 function truncateMessage(text: string, max = 80): string {

@@ -50,7 +50,15 @@ function estimateDurationMinutesFromLead(lead: { stateMetadata: unknown }): numb
   }
 }
 
-async function proposeSlots(input: ProposeSlotsInput): Promise<ProposeSlotsResult> {
+export async function proposeSlotsDirect(
+  input: ProposeSlotsInput,
+): Promise<ProposeSlotsResult> {
+  return proposeSlotsInternal(input);
+}
+
+async function proposeSlotsInternal(
+  input: ProposeSlotsInput,
+): Promise<ProposeSlotsResult> {
   const lead = await prisma.lead.findUnique({
     where: { id: input.lead_id },
   });
@@ -232,7 +240,7 @@ export function buildProposeSlotsTool() {
       'Suggests two junk pickup windows for the customer to choose from. Use before booking.',
     parameters: proposeSlotsJsonSchema,
     execute: async (args) =>
-      proposeSlots(
+      proposeSlotsInternal(
         proposeSlotsParameters.parse({
           preferred_day: null,
           preferred_time_text: null,

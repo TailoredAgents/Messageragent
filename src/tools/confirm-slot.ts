@@ -65,7 +65,9 @@ const monetaryArraySchema = z
   .default([]);
 const notesArraySchema = z.array(z.string()).default([]);
 
-async function confirmSlot(input: ConfirmSlotInput): Promise<ConfirmSlotResult> {
+export async function confirmSlotDirect(
+  input: ConfirmSlotInput,
+): Promise<ConfirmSlotResult> {
   let lead = await prisma.lead.findUnique({
     where: { id: input.lead_id },
   });
@@ -372,7 +374,7 @@ export function buildConfirmSlotTool() {
           ...((raw.slot as Record<string, unknown> | undefined) ?? {}),
         },
       };
-      return confirmSlot(confirmSlotParameters.parse(normalized));
+      return confirmSlotDirect(confirmSlotParameters.parse(normalized));
     },
   });
 }
