@@ -1583,7 +1583,7 @@ async function maybeHandleMessengerScheduling({
   }
 
   const schedulingIntent = detectSchedulingIntent(
-    textPayload ? expandTimeShorthand(textPayload) : messageText,
+    expandTimeShorthand(messageText),
     timeZone,
   );
   if (!schedulingIntent) {
